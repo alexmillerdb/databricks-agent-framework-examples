@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import os
 import uuid
+import json
 from typing import Any, List, Optional
 
 import dspy
@@ -87,6 +88,55 @@ class _DSPyRAGProgram(dspy.Module):
 
 
 # -----------------------------------------------------------------------------
+# Helper: load optimized program if available
+# -----------------------------------------------------------------------------
+
+def _load_optimized_program() -> Optional[_DSPyRAGProgram]:
+    """Load a pre-compiled optimized DSPy program if available."""
+    optimized_path = os.getenv("DSPY_OPTIMIZED_PROGRAM_PATH")
+    
+    if optimized_path and os.path.exists(optimized_path):
+        try:
+            # Try DSPy's native load method first
+            if optimized_path.endswith('.json'):
+                # Load using DSPy's save/load mechanism
+                program = _DSPyRAGProgram(_build_retriever())
+                program.load(optimized_path)
+                return program
+            else:
+                # Fallback to pickle (less reliable)
+                import pickle
+                with open(optimized_path, 'rb') as f:
+                    return pickle.load(f)
+        except Exception as e:
+            print(f"Failed to load optimized program: {e}")
+            
+            # Try loading components
+            components_path = optimized_path.replace('.pkl', '_components.json')
+            if os.path.exists(components_path):
+                try:
+                    return _load_from_components(components_path)
+                except Exception as e2:
+                    print(f"Failed to load from components: {e2}")
+    
+    return None
+
+def _load_from_components(components_path: str) -> _DSPyRAGProgram:
+    """Load program from saved components."""
+    with open(components_path, 'r') as f:
+        components = json.load(f)
+    
+    # Create base program
+    retriever = _build_retriever()
+    program = _DSPyRAGProgram(retriever)
+    
+    # Apply optimized components
+    if 'signature' in components and 'instructions' in components['signature']:
+        program.response_generator.signature.instructions = components['signature']['instructions']
+    
+    return program
+
+# -----------------------------------------------------------------------------
 # MLflow ChatAgent implementation
 # -----------------------------------------------------------------------------
 
@@ -94,10 +144,22 @@ class _DSPyRAGProgram(dspy.Module):
 class DSPyRAGChatAgent(ChatAgent):
     """MLflow ChatAgent that answers questions using a DSPy RAG program."""
 
-    def __init__(self, rag_program: Optional[_DSPyRAGProgram] = None):
+    def __init__(self, rag_program: Optional[_DSPyRAGProgram] = None, use_optimized: bool = True):
         super().__init__()
-        # If caller provides a custom program, use it, else build default
-        self.rag = rag_program or _DSPyRAGProgram(_build_retriever())
+        
+        # Priority: custom program > optimized program > default program
+        if rag_program:
+            self.rag = rag_program
+        elif use_optimized:
+            optimized = _load_optimized_program()
+            if optimized:
+                print("Using optimized DSPy program")
+                self.rag = optimized
+            else:
+                print("No optimized program found, using default")
+                self.rag = _DSPyRAGProgram(_build_retriever())
+        else:
+            self.rag = _DSPyRAGProgram(_build_retriever())
 
     # -------------------------------------------------- internal helpers ----
     @staticmethod
@@ -125,7 +187,7 @@ class DSPyRAGChatAgent(ChatAgent):
         custom_inputs: Optional[dict[str, Any]] = None,
     ) -> ChatAgentResponse:
         latest_question = self._latest_user_prompt(messages)
-        answer: str = self.rag(question=latest_question, history=self.prepare_message_history(messages)).response
+        answer: str = self.rag(request=latest_question).response
 
         assistant_msg = ChatAgentMessage(
             id=str(uuid.uuid4()),
@@ -142,7 +204,7 @@ class DSPyRAGChatAgent(ChatAgent):
         custom_inputs: Optional[dict[str, Any]] = None,
     ):
         latest_question = self._latest_user_prompt(messages)
-        answer: str = self.rag(question=latest_question, history=self.prepare_message_history(messages)).response
+        answer: str = self.rag(request=latest_question).response
 
         yield ChatAgentChunk(
             delta=ChatAgentMessage(
