@@ -7,6 +7,7 @@
 # MAGIC * Wrap that DSPy program with the **MLflow `ChatAgent`** interface so it can be served like any other Databricks Agent.
 # MAGIC * Enable **MLflow 3.x tracing** for full DSPy span capture.
 # MAGIC * Log the agent as an **MLflow PyFunc model** that can be deployed to Model Serving or used in the AI Playground.
+# MAGIC * Use **MLflow ModelConfig** for parameterized deployment across environments.
 # MAGIC 
 # MAGIC The implementation below merges the ideas from the official Databricks notebooks
 # MAGIC * *dspy-create-rag-program.py* (building the RAG module)
@@ -42,39 +43,60 @@ UC_VS_INDEX_NAME = f"{catalog}.{schema}.{vector_search_index_name}"
 
 # COMMAND ----------
 # MAGIC %md
+# MAGIC ## Configuration Setup
+# MAGIC 
+# MAGIC Load configuration using MLflow ModelConfig for parameterized deployment.
+
+# COMMAND ----------
+import mlflow
+import os
+
+# Load development configuration
+config_path = "config.yaml"
+model_config = mlflow.models.ModelConfig(development_config=config_path)
+
+# Set environment variables from config
+os.environ["VS_INDEX_FULLNAME"] = UC_VS_INDEX_NAME
+llm_config = model_config.get("llm_config") or {}
+os.environ["DSPY_LLM_ENDPOINT"] = llm_config.get("endpoint", "databricks/databricks-claude-3-7-sonnet")
+
+print(f"Using LLM endpoint: {os.environ['DSPY_LLM_ENDPOINT']}")
+print(f"Using Vector Search index: {UC_VS_INDEX_NAME}")
+print(f"Configuration loaded from: {config_path}")
+
+# COMMAND ----------
+# MAGIC %md
 # MAGIC ## Imports & MLflow / DSPy configuration
 
 # COMMAND ----------
-import uuid, os, mlflow, dspy
+import uuid, dspy
 from pkg_resources import get_distribution
 from mlflow.models.resources import DatabricksServingEndpoint, DatabricksVectorSearchIndex, DatabricksFunction
 from mlflow.pyfunc import ChatAgent
 from mlflow.types.agent import ChatAgentMessage, ChatAgentResponse, ChatAgentChunk
 
-# Enable full DSPy autologging (captures compile/eval + live inference traces)
-mlflow.dspy.autolog()
+# Configure MLflow based on config
+mlflow_config = model_config.get("mlflow_config") or {}
+if mlflow_config.get("enable_autolog", True):
+    # Enable full DSPy autologging (captures compile/eval + live inference traces)
+    mlflow.dspy.autolog()
 
 # Ensure we talk to the Databricks tracking server for run + model logging
 mlflow.set_tracking_uri("databricks")
 
-# If you want to store experiments in a dedicated path, change this value
+# Set experiment based on config
 user_name = dbutils.notebook.entry_point.getDbutils().notebook().getContext().userName().get()
-experiment_info = mlflow.set_experiment(f"/Users/{user_name}/dspy_rag_chat_agent")
+experiment_name = mlflow_config.get("experiment_name", "dspy_rag_chat_agent")
+experiment_info = mlflow.set_experiment(f"/Users/{user_name}/{experiment_name}")
 print(f"MLflow Experiment info: {experiment_info}")
-
-# Set the LLM endpoint name (defaults to "databricks/databricks-claude-3-7-sonnet")
-os.environ["DSPY_LLM_ENDPOINT"] = "databricks/databricks-claude-3-7-sonnet"
-
-# Set the VS index name created in previous step
-os.environ["VS_INDEX_FULLNAME"] = UC_VS_INDEX_NAME
 
 # -----------------------------------------------------------------------------
 # Import the ChatAgent class directly from `agent.py`
 # -----------------------------------------------------------------------------
 from agent import DSPyRAGChatAgent, LLM_ENDPOINT  # type: ignore
 
-# Instantiate the agent for logging
-chat_agent = DSPyRAGChatAgent()
+# Instantiate the agent with configuration
+chat_agent = DSPyRAGChatAgent(config=model_config)
 test_response = chat_agent.predict([
     ChatAgentMessage(role="user", content="Who is Zeus?", id=str(uuid.uuid4()))
 ])
@@ -88,10 +110,14 @@ print("Assistant:", test_response.messages[0].content)
 # COMMAND ----------
 input_example = {"messages": [{"role": "user", "content": "Who is Zeus?"}]}
 
+# Get model name from config
+model_name_from_config = mlflow_config.get("registered_model_name", "dspy_rag_agent")
+
 with mlflow.start_run(run_name="dspy_rag_chat_agent_build"):
     model_info = mlflow.pyfunc.log_model(
-        name="dspy_rag_agent",
+        name=model_name_from_config,
         python_model="agent.py",
+        model_config=model_config.to_dict(),  # Pass the ModelConfig to the logged model
         # Pin package versions for reproducibility
         pip_requirements=[
             f"dspy=={dspy.__version__}",
@@ -104,7 +130,9 @@ with mlflow.start_run(run_name="dspy_rag_chat_agent_build"):
             DatabricksServingEndpoint(endpoint_name=LLM_ENDPOINT.replace("databricks/", "")),
             DatabricksVectorSearchIndex(index_name=UC_VS_INDEX_NAME),
             # DatabricksFunction(function_name=uc_function_name) # TODO: add function name if you have one
-        ]
+        ],
+        input_example=input_example,
+        code_paths=["agent.py", "utils.py"]
     )
     print("Logged model to:", model_info.model_uri)
 
@@ -125,7 +153,7 @@ print("Prediction via loaded agent:", result)
 # MAGIC Before registering and deploying the agent, perform pre-deployment checks using the mlflow.models.predict() API. See Databricks documentation (AWS | Azure).
 # COMMAND ----------
 mlflow.models.predict(
-    model_uri=f"runs:/{model_info.run_id}/dspy_rag_agent",
+    model_uri=f"runs:/{model_info.run_id}/{model_name_from_config}",
     input_data={"messages": [{"role": "user", "content": "Who is Zeus?"}]},
     env_manager="uv",
 )
@@ -143,15 +171,26 @@ uc_registered_model_info = mlflow.register_model(model_uri=model_info.model_uri,
 # MAGIC ## Deploy the model to Model Serving
 # COMMAND ----------
 from databricks import agents
-agents.deploy(UC_MODEL_NAME, uc_registered_model_info.version, 
-              scale_to_zero=True, 
-              environment_vars={
-                "DSPY_LLM_ENDPOINT": LLM_ENDPOINT,
-                "VS_INDEX_FULLNAME": UC_VS_INDEX_NAME},
-              tags={"endpointSource": "dspy-rag-agent-v1"})
+
+# Get deployment configuration
+deployment_llm_config = model_config.get("llm_config") or {}
+deployment_config = {
+    "DSPY_LLM_ENDPOINT": deployment_llm_config.get("endpoint", "databricks/databricks-claude-3-7-sonnet"),
+    "VS_INDEX_FULLNAME": UC_VS_INDEX_NAME
+}
+
+agents.deploy(
+    UC_MODEL_NAME, 
+    uc_registered_model_info.version, 
+    scale_to_zero=True, 
+    environment_vars=deployment_config,
+    tags={"endpointSource": "dspy-rag-agent-v1", "configUsed": config_path}
+)
+
 # COMMAND ----------
 # MAGIC %md
 # MAGIC ### Next steps
 # MAGIC * Deploy to Model Serving for scalable, guarded inference.
-# MAGIC * Open the run’s *Tracing* tab in the MLflow UI to inspect DSPy spans.
-# MAGIC * Evaluate with Mosaic AI Agent Evaluation notebooks. 
+# MAGIC * Open the run's *Tracing* tab in the MLflow UI to inspect DSPy spans.
+# MAGIC * Evaluate with Mosaic AI Agent Evaluation notebooks.
+# MAGIC * Use `config_optimized.yaml` for production deployment with optimized settings. 

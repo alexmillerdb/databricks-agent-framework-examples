@@ -77,7 +77,7 @@ print(f"- config['vs_index_fullname']= '{config['vs_index_fullname'] }'")
 
 # COMMAND ----------
 
-from langchain.text_splitter import TokenTextSplitter
+from langchain.text_splitter import RecursiveCharacterTextSplitter
 import pandas as pd
 from pyspark.sql.functions import pandas_udf
 from pyspark.sql.types import IntegerType, StructField, StructType, StringType
@@ -89,9 +89,9 @@ def pandas_text_splitter(iterator: Iterator[pd.DataFrame]) -> Iterator[pd.DataFr
     """
     Apache Spark pandas UDF for chunking text in a scale-out pipeline.
     """
-    token_splitter = TokenTextSplitter(chunk_size=400, chunk_overlap=20)
+    text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=50)
     for pdf in iterator:
-        pdf["text"] = pdf["text"].apply(token_splitter.split_text)
+        pdf["text"] = pdf["text"].apply(text_splitter.split_text)
         chunk_pdf = pdf.explode("text")
         chunk_pdf_with_index = chunk_pdf.reset_index().rename(
             columns={"index": "chunk_id"}
@@ -107,7 +107,7 @@ def pandas_text_splitter(iterator: Iterator[pd.DataFrame]) -> Iterator[pd.DataFr
 # Accessing Wikipedia sample data
 source_data_path = "dbfs:/databricks-datasets/wikipedia-datasets/data-001/en_wikipedia/articles-only-parquet"
 
-n_samples = 200
+n_samples = 5000
 source_df = spark.read.parquet(source_data_path).limit(n_samples)
 
 # We need to adjust the "id" field to be a StringType instead of an IntegerType,

@@ -3,11 +3,17 @@
 # MAGIC # DSPy RAG Compilation & Optimization
 # MAGIC 
 # MAGIC This notebook compiles and optimizes the DSPy RAG program for better performance,
-# MAGIC then saves the optimized version for deployment.
+# MAGIC then saves the optimized version for deployment using MLflow ModelConfig.
 
 # COMMAND ----------
 %pip install -qqq --upgrade "mlflow[databricks]>=3.1" dspy-ai databricks-agents openai
 dbutils.library.restartPython()
+
+# COMMAND ----------
+# MAGIC %md
+# MAGIC ## Configuration Setup
+# MAGIC 
+# MAGIC Load configuration using MLflow ModelConfig for parameterized optimization.
 
 # COMMAND ----------
 import os
@@ -17,30 +23,55 @@ import json
 from typing import List, Dict, Any
 import pickle
 
-# Configuration
+# Load development configuration
+config_path = "config.yaml"
+model_config = mlflow.models.ModelConfig(development_config=config_path)
+
+# Configuration from ModelConfig
 catalog = "users"
 schema = "alex_miller"
 vector_search_index_name = "wikipedia_chunks_index"
 UC_VS_INDEX_NAME = f"{catalog}.{schema}.{vector_search_index_name}"
 
-# Set environment variables
+# Set environment variables from config
+llm_config = model_config.get("llm_config") or {}
 os.environ["VS_INDEX_FULLNAME"] = UC_VS_INDEX_NAME
-os.environ["DSPY_LLM_ENDPOINT"] = "databricks/databricks-claude-3-7-sonnet"
+os.environ["DSPY_LLM_ENDPOINT"] = llm_config.get("endpoint", "databricks/databricks-claude-3-7-sonnet")
 
-# Configure DSPy with explicit LLM
-lm = dspy.LM(model="databricks/databricks-claude-3-7-sonnet")
+print(f"Using LLM endpoint: {os.environ['DSPY_LLM_ENDPOINT']}")
+print(f"Using Vector Search index: {UC_VS_INDEX_NAME}")
+print(f"Configuration loaded from: {config_path}")
+
+# COMMAND ----------
+# MAGIC %md
+# MAGIC ## DSPy and MLflow Configuration
+
+# COMMAND ----------
+# Configure DSPy with settings from config
+lm = dspy.LM(
+    model=os.environ["DSPY_LLM_ENDPOINT"],
+    max_tokens=llm_config.get("max_tokens", 2500),
+    temperature=llm_config.get("temperature", 0.01),
+    top_p=llm_config.get("top_p", 0.95)
+)
 dspy.configure(lm=lm)
 
 # MLflow configuration
 mlflow.set_tracking_uri("databricks")
 user_name = dbutils.notebook.entry_point.getDbutils().notebook().getContext().userName().get()
-mlflow.set_experiment(f"/Users/{user_name}/dspy_rag_optimization")
 
-# Enable DSPy tracing
-mlflow.dspy.autolog(log_traces_from_compile=True)
+# Set experiment based on config
+mlflow_config = model_config.get("mlflow_config") or {}
+experiment_name = f"{mlflow_config.get('experiment_name', 'dspy_rag_agent')}_optimization"
+mlflow.set_experiment(f"/Users/{user_name}/{experiment_name}")
+
+# Configure tracing based on config
+if mlflow_config.get("enable_autolog", True):
+    mlflow.dspy.autolog(log_traces_from_compile=True)
 
 # Import the base RAG program
-from agent import _DSPyRAGProgram, _build_retriever
+from agent import _DSPyRAGProgram
+from utils import build_retriever
 
 # COMMAND ----------
 # MAGIC %md
@@ -128,8 +159,8 @@ def test_metric_and_base_program():
     """Test the metric and base program before optimization."""
     print("Testing metric and base program...")
     
-    # Create base program and dataset
-    retriever = _build_retriever()
+    # Create base program and dataset using config
+    retriever = build_retriever(model_config)
     base_program = _DSPyRAGProgram(retriever)
     trainset = create_training_dataset()
     
@@ -160,10 +191,10 @@ base_program, trainset = test_metric_and_base_program()
 
 # COMMAND ----------
 def compile_rag_program():
-    """Compile and optimize the DSPy RAG program."""
+    """Compile and optimize the DSPy RAG program using configuration."""
     
-    # Create base program
-    retriever = _build_retriever()
+    # Create base program with config
+    retriever = build_retriever(model_config)
     base_program = _DSPyRAGProgram(retriever)
     
     # Create training dataset
@@ -176,6 +207,10 @@ def compile_rag_program():
     print("Evaluating base program...")
     base_score = evaluator(base_program)
     print(f"Base program score: {base_score}")
+    
+    # Get optimization settings from config
+    agent_config = model_config.get("agent_config") or {}
+    max_iterations = agent_config.get("max_iterations", 20)
     
     # Initialize optimizer with verbose logging
     optimizer = dspy.MIPROv2(
@@ -192,7 +227,7 @@ def compile_rag_program():
         optimized_program = optimizer.compile(
             base_program, 
             trainset=trainset,
-            num_trials=20,  # Explicit number of trials
+            num_trials=max_iterations,
             max_bootstrapped_demos=4,
             max_labeled_demos=4
         )
@@ -265,12 +300,8 @@ with mlflow.start_run(run_name="DSPy_RAG_Compilation"):
         
     except Exception as e:
         print(f"Error saving program: {e}")
-        # Fallback to pickle if DSPy save fails
-        with open("optimized_rag_program.pkl", "wb") as f:
-            pickle.dump(optimized_program, f)
-        mlflow.log_artifact("optimized_rag_program.pkl", "optimized_program")
     
-    # Save program metadata
+    # Save program metadata with config info
     program_state = {
         "program_type": type(optimized_program).__name__,
         "base_score": float(base_score),
@@ -279,7 +310,10 @@ with mlflow.start_run(run_name="DSPy_RAG_Compilation"):
         "config": {
             "optimizer": "MIPROv2",
             "training_examples": len(trainset),
-            "optimization_level": "medium"
+            "optimization_level": "medium",
+            "llm_config": llm_config,
+            "agent_config": model_config.get("agent_config") or {},
+            "config_file": config_path
         }
     }
     
@@ -288,10 +322,17 @@ with mlflow.start_run(run_name="DSPy_RAG_Compilation"):
     
     mlflow.log_artifact("program_metadata.json", "optimized_program")
     
+    # Log the model config as an artifact
+    mlflow.log_dict(model_config.to_dict(), "model_config.json")
+    
     # Log metrics and parameters
     mlflow.log_param("training_examples", len(trainset))
     mlflow.log_param("optimizer", "MIPROv2")
     mlflow.log_param("optimization_level", "medium")
+    mlflow.log_param("config_file", config_path)
+    mlflow.log_param("llm_endpoint", llm_config.get("endpoint"))
+    mlflow.log_param("max_tokens", llm_config.get("max_tokens"))
+    mlflow.log_param("temperature", llm_config.get("temperature"))
     mlflow.log_metric("base_score", base_score)
     mlflow.log_metric("optimized_score", optimized_score)
     mlflow.log_metric("improvement", optimized_score - base_score)
@@ -300,6 +341,7 @@ with mlflow.start_run(run_name="DSPy_RAG_Compilation"):
     print(f"Base Score: {base_score:.3f}")
     print(f"Optimized Score: {optimized_score:.3f}")
     print(f"Improvement: {optimized_score - base_score:.3f}")
+    print(f"Configuration: {config_path}")
 
 # COMMAND ----------
 # MAGIC %md
@@ -371,3 +413,11 @@ def detailed_evaluation():
 # Run detailed evaluation
 test_score = detailed_evaluation()
 mlflow.log_metric("test_score", test_score)
+
+# COMMAND ----------
+# MAGIC %md
+# MAGIC ## Next Steps
+# MAGIC 
+# MAGIC * Use the optimized program in the deployment notebook (04-deploy-optimized-agent.py)
+# MAGIC * Consider using `config_optimized.yaml` for production-optimized settings
+# MAGIC * The optimized program artifacts are saved in MLflow for reproducibility

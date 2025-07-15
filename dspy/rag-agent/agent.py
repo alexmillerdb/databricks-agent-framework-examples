@@ -2,11 +2,23 @@
 # This lightweight module is intended to be imported by notebooks or scripts that
 # need a ready-to-use ChatAgent backed by DSPy and Databricks Vector Search.
 
+# Configuration Usage Examples:
+# 
+# Development/Default usage:
+#   agent = DSPyRAGChatAgent()  # Uses config.yaml
+#
+# Production/Optimized usage:
+#   optimized_config = mlflow.models.ModelConfig(development_config="config_optimized.yaml")
+#   agent = DSPyRAGChatAgent(config=optimized_config)
+#
+# Custom configuration:
+#   custom_config = mlflow.models.ModelConfig(development_config="my_custom_config.yaml")
+#   agent = DSPyRAGChatAgent(config=custom_config)
+
 from __future__ import annotations
 
 import os
 import uuid
-import json
 from typing import Any, List, Optional
 
 import dspy
@@ -18,55 +30,49 @@ from mlflow.types.agent import (
     ChatAgentChunk,
     ChatAgentMessage,
     ChatAgentResponse,
+    ChatContext,
 )
+
+from utils import build_retriever, load_optimized_program
+
+# -----------------------------------------------------------------------------
+# Configuration Management
+# -----------------------------------------------------------------------------
+
+# Load configuration from config.yaml (default development config)
+CONFIG_FILE = os.path.join(os.path.dirname(__file__), "config.yaml")
+model_config = mlflow.models.ModelConfig(development_config=CONFIG_FILE)
 
 # -----------------------------------------------------------------------------
 # Global DSPy / MLflow configuration
 # -----------------------------------------------------------------------------
 
-# Enable tracing of every DSPy span to MLflow runs (compile, eval, inference).
-mlflow.dspy.autolog()
+# Get MLflow configuration
+mlflow_config = model_config.get("mlflow_config") or {}
+if mlflow_config.get("enable_autolog", True):
+    # Enable tracing of every DSPy span to MLflow runs (compile, eval, inference).
+    mlflow.dspy.autolog()
 
-# Configure the LLM endpoint to use for generation. Override via env var
-LLM_ENDPOINT = os.getenv("DSPY_LLM_ENDPOINT", "databricks/databricks-claude-3-7-sonnet")
+# Get LLM configuration
+llm_config = model_config.get("llm_config") or {}
+LLM_ENDPOINT = os.getenv("DSPY_LLM_ENDPOINT", llm_config.get("endpoint", "databricks/databricks-claude-3-7-sonnet"))
 
 # Instantiate the LM and set DSPy global settings
-_lm = dspy.LM(model=LLM_ENDPOINT)
+_lm = dspy.LM(
+    model=LLM_ENDPOINT,
+    max_tokens=llm_config.get("max_tokens", 2500),
+    temperature=llm_config.get("temperature", 0.01),
+    top_p=llm_config.get("top_p", 0.95)
+)
 dspy.settings.configure(lm=_lm)
-
-# -----------------------------------------------------------------------------
-# Helper: build a Databricks Vector Search retriever
-# -----------------------------------------------------------------------------
-
-
-def _build_retriever() -> DatabricksRM:
-    """Create a retriever for the Vector Search index specified by env vars.
-
-    Required env vars:
-      * VS_INDEX_FULLNAME  – catalog.schema.index_name (Unity Catalog path)
-    """
-
-    index_fullname = os.getenv("VS_INDEX_FULLNAME")
-    if not index_fullname:
-        raise ValueError(
-            "Environment variable VS_INDEX_FULLNAME must be set to the fully-qualified "
-            "Vector Search index (e.g. catalog.schema.index_name)"
-        )
-
-    return DatabricksRM(
-        databricks_index_name=index_fullname,
-        text_column_name="chunk",
-        docs_id_column_name="id",
-        columns=["id", "title", "chunk_id"],
-        k=int(os.getenv("DSPY_TOP_K", "5")),
-    )
-
 
 # -----------------------------------------------------------------------------
 # Define the DSPy RAG program (very similar to dspy-create-rag-program.py)
 # -----------------------------------------------------------------------------
 
-_RESPONSE_GENERATOR_SIGNATURE = "context, request -> response"
+# Get DSPy configuration
+dspy_config = model_config.get("dspy_config") or {}
+_RESPONSE_GENERATOR_SIGNATURE = dspy_config.get("response_generator_signature", "context, request -> response")
 
 
 class _DSPyRAGProgram(dspy.Module):
@@ -88,55 +94,6 @@ class _DSPyRAGProgram(dspy.Module):
 
 
 # -----------------------------------------------------------------------------
-# Helper: load optimized program if available
-# -----------------------------------------------------------------------------
-
-def _load_optimized_program() -> Optional[_DSPyRAGProgram]:
-    """Load a pre-compiled optimized DSPy program if available."""
-    optimized_path = os.getenv("DSPY_OPTIMIZED_PROGRAM_PATH")
-    
-    if optimized_path and os.path.exists(optimized_path):
-        try:
-            # Try DSPy's native load method first
-            if optimized_path.endswith('.json'):
-                # Load using DSPy's save/load mechanism
-                program = _DSPyRAGProgram(_build_retriever())
-                program.load(optimized_path)
-                return program
-            else:
-                # Fallback to pickle (less reliable)
-                import pickle
-                with open(optimized_path, 'rb') as f:
-                    return pickle.load(f)
-        except Exception as e:
-            print(f"Failed to load optimized program: {e}")
-            
-            # Try loading components
-            components_path = optimized_path.replace('.pkl', '_components.json')
-            if os.path.exists(components_path):
-                try:
-                    return _load_from_components(components_path)
-                except Exception as e2:
-                    print(f"Failed to load from components: {e2}")
-    
-    return None
-
-def _load_from_components(components_path: str) -> _DSPyRAGProgram:
-    """Load program from saved components."""
-    with open(components_path, 'r') as f:
-        components = json.load(f)
-    
-    # Create base program
-    retriever = _build_retriever()
-    program = _DSPyRAGProgram(retriever)
-    
-    # Apply optimized components
-    if 'signature' in components and 'instructions' in components['signature']:
-        program.response_generator.signature.instructions = components['signature']['instructions']
-    
-    return program
-
-# -----------------------------------------------------------------------------
 # MLflow ChatAgent implementation
 # -----------------------------------------------------------------------------
 
@@ -144,22 +101,27 @@ def _load_from_components(components_path: str) -> _DSPyRAGProgram:
 class DSPyRAGChatAgent(ChatAgent):
     """MLflow ChatAgent that answers questions using a DSPy RAG program."""
 
-    def __init__(self, rag_program: Optional[_DSPyRAGProgram] = None, use_optimized: bool = True):
+    def __init__(self, rag_program: Optional[_DSPyRAGProgram] = None, config=None):
         super().__init__()
+        
+        # Use provided config or global model_config
+        self.config = config or model_config
+        agent_config = self.config.get("agent_config") or {}
+        use_optimized = agent_config.get("use_optimized", True)
         
         # Priority: custom program > optimized program > default program
         if rag_program:
             self.rag = rag_program
         elif use_optimized:
-            optimized = _load_optimized_program()
+            optimized = load_optimized_program(_DSPyRAGProgram, self.config)
             if optimized:
                 print("Using optimized DSPy program")
                 self.rag = optimized
             else:
                 print("No optimized program found, using default")
-                self.rag = _DSPyRAGProgram(_build_retriever())
+                self.rag = _DSPyRAGProgram(build_retriever(self.config))
         else:
-            self.rag = _DSPyRAGProgram(_build_retriever())
+            self.rag = _DSPyRAGProgram(build_retriever(self.config))
 
     # -------------------------------------------------- internal helpers ----
     @staticmethod
