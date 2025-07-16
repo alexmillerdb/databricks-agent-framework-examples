@@ -114,6 +114,53 @@ def create_training_dataset() -> List[dspy.Example]:
         for item in training_data
     ]
 
+def create_training_dataset_from_delta(
+    catalog: str = "users",
+    schema: str = "alex_miller", 
+    table_name: str = "rag_training_data",
+    question_col: str = "request",
+    answer_col: str = "expected_response",
+    limit: int = None
+) -> List[dspy.Example]:
+    """Create training examples for optimization from a Delta table in UC."""
+    
+    # Construct the full table name
+    full_table_name = f"{catalog}.{schema}.{table_name}"
+    
+    try:
+        # Read from Delta table using Spark
+        df = spark.table(full_table_name)
+        
+        # Optionally limit the number of rows for faster training
+        if limit:
+            df = df.limit(limit)
+        
+        # Convert to Pandas for easier manipulation
+        pandas_df = df.select(question_col, answer_col).toPandas()
+        
+        # Convert to the format expected by DSPy
+        training_data = []
+        for _, row in pandas_df.iterrows():
+            training_data.append({
+                "request": row[question_col],
+                "expected_response": row[answer_col]
+            })
+        
+        print(f"Loaded {len(training_data)} training examples from {full_table_name}")
+        
+        # Convert to DSPy Examples
+        return [
+            dspy.Example(**item).with_inputs("request") 
+            for item in training_data
+        ]
+        
+    except Exception as e:
+        print(f"Error reading from Delta table {full_table_name}: {e}")
+        print("Falling back to hardcoded examples...")
+        
+        # Fallback to your current hardcoded examples
+        return create_training_dataset()
+
 # COMMAND ----------
 # MAGIC %md
 # MAGIC ## Define Evaluation Metric
@@ -190,7 +237,7 @@ base_program, trainset = test_metric_and_base_program()
 # MAGIC ## Compile & Optimize the RAG Program
 
 # COMMAND ----------
-def compile_rag_program():
+def compile_rag_program(create_dataset_function=create_training_dataset):
     """Compile and optimize the DSPy RAG program using configuration."""
     
     # Create base program with config
@@ -198,7 +245,12 @@ def compile_rag_program():
     base_program = _DSPyRAGProgram(retriever)
     
     # Create training dataset
-    trainset = create_training_dataset()
+    if create_dataset_function == 'create_training_dataset':
+        trainset = create_training_dataset()
+    elif create_dataset_function == 'create_training_dataset_from_delta':
+        trainset = create_training_dataset_from_delta()
+    else:
+        raise ValueError(f"Invalid create_dataset_function: {create_dataset_function}")
     
     # Evaluate base program first
     from dspy.evaluate import Evaluate
