@@ -20,18 +20,18 @@ vector_search:
 # DSPy Configuration - Points to optimized program
 dspy_config:
   response_generator_signature: "context, request -> response"
-  optimized_program_path: "/tmp/optimized_dspy_program.pkl"  # Path to your optimized program
+  optimized_program_path: null  # Path to your optimized program
   
 # Agent Configuration - Optimized for production
 agent_config:
   use_optimized: true  # Always use optimized program
-  enable_tracing: false  # Disabled for performance in production
-  verbose: false  # Reduced logging for production
+  enable_tracing: true  # Disabled for performance in production
+  verbose: true  # Reduced logging for production
   max_iterations: 5  # Reduced for faster response times
 
 # MLflow Configuration - Production settings
 mlflow_config:
-  enable_autolog: false  # Disabled for performance in production
+  enable_autolog: true  # Disabled for performance in production
   experiment_name: "dspy-rag-agent-optimized"
   registered_model_name: "dspy_rag_chat_agent_optimized"
 
