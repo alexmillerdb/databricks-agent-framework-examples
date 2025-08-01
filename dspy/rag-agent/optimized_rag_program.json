@@ -8,16 +8,10 @@
     "demos": [
       {
         "augmented": true,
-        "context": [
-          "and an apparatus for the processing of queries to a database |publisher=Patft.uspto.gov|accessdate=20 November 2014}}<\/ref> (and 25 patents worldwide) for developments within business intelligence and analytics software, placing him among the top 1.8% of all active inventors.<ref name=\"Zacco\" \/> His inventions pertain primarily to graphical representation of [[OLAP]]-structured of data within a business intelligence and analytics platform, methods of retrieving data from the platform, and the processing of natural language and multi-lingual queries to the data warehouse through the platform.<ref name=\"USPTO\">{{cite web|url=http:\/\/patft.uspto.gov\/netacgi\/nph-Parser?Sect1=PTO2&Sect2=HITOFF&p=1&u=%2Fnetahtml%2FPTO%2Fsearch-bool.html&r=0&f=S&l=50&TERM1=middelfart&FIELD1=INNM&co1=AND&TERM2=&FIELD2=&d=PTXT|title=US Patent & Trademark Office, Patent Full Text and Image Database |publisher=Patft.uspto.gov|accessdate=20 November 2014}}<\/ref><ref name=Computerworld>{{cite",
-          "2014}}<\/ref><ref name=Computerworld>{{cite web|author=|url=http:\/\/www.computerworld.dk\/art\/112771\/dansk-it-direktoer-faar-sin-anden-ph-d-om-algoritmer |title=Dansk it-direktør får sin anden ph.d. - om algoritmer - Computerworld |publisher=Computerworld.dk |date=2012-09-07 |accessdate=2013-06-26}}<\/ref> Middelfart is the most prolific Danish inventor in the field of database technology.<ref name=\"Zacco\" \/>  In addition to his patents, Middelfart is a pioneer in the use of the [[OODA]] loop process within business intelligence and data warehousing.<ref name=TEC>{{cite web|url=http:\/\/blog.technologyevaluation.com\/blog\/2011\/09\/19\/thinking-radically-dr-morten-middelfart-cto-of-targit\/ |title=Thinking Radically: Dr. Morten Middelfart, CTO of TARGIT » The TEC Blog |publisher=Blog.technologyevaluation.com |date=2011-09-19 |accessdate=2013-06-26}}<\/ref> The process, as first developed by [[USAF]] Colonel [[John Boyd (military strategist)|John Boyd]], describes the way individuals and",
-          "mechanical bellows. The organette was compact and affordable with large selections of music to choose from. Various patents credit [[Henry Bishop Horton]], (1819-1885) co-founder of the Ithaca Calendar Clock Co.<ref>http:\/\/www.rollerorgans.com\/adverts\/1885_Death_of_H_B_Horton.txt<\/ref><ref>http:\/\/ithacacalendarclock.com\/1875NEWSPAPERSTORY.html<\/ref>[[John McTammany]], (1845-1915)<ref>http:\/\/www.organettes.com\/patents\/home?s[]=patents<\/ref><ref>http:\/\/www.amica.org\/Live\/Publications\/Past-Bulletin-Articles\/McTammany.PDF<\/ref>Paul Ehrlich<ref>http:\/\/www.organettes.com\/patents\/home?s[]=patents<\/ref>and others with the invention of the organette.The organette's popularity declined as the phonograph was introduced and became more affordable to the public.  {{quote|''The most remarkable feature of this invention is the regularity and perfection with which the music is rendered. All of the parts are played and the music is of no mean order.''|''[[Scientific American]]'' 19 November 1879}}",
-          "[[File:Organette07.jpg|thumb|<center>Patent 196,529 showing organette structure]] [[File:Ithaca Calendar Clock04.jpg|thumb|<center>Ithaca Calendar Clock]] '''Henry Bishop Horton''' (1 September 1819 [[Winchester, Connecticut]] - 3 December 1885 [[Ithaca, New York]]) was an American inventor, remembered chiefly for his inventions in automatic music players and clock-making. <ref>http:\/\/www.rollerorgans.com\/adverts\/1885_Death_of_H_B_Horton.txt<\/ref>  About 1823 his family moved to [[Covert, New York]], where he grew up and, when nineteen years old, served for three years as a cabinet maker's apprentice under George Whiton (1801 Stockbridge - 1878 Ithaca). <ref>http:\/\/www.hickokfamilygenealogy.com\/Hickok\/b324.htm#P9520<\/ref> After this he became involved in the manufacture of melopeans, instruments quite similar to [[Diatonic button accordion|melodeons]]. His taste for music showed itself at an early age and during his lifetime he invented various musical instruments, most celebrated",
-          "intelligence]] and [[analytics]]. Middelfart is currently the CIO of [[Genomic Expression]] and founder of Social Quant; both organizations implement the [[data analytics]] techniques Middelfart has developed throughout his career. With seven U.S. [[patent]]s<ref name=Zacco>{{cite web|url=http:\/\/morton.dk\/inventorUSPTO.pdf|format=PDF|title=Assessment of Dr. Middelfart’s patent activity as inventor|publisher=Morton.dk|accessdate=20 November 2014}}<\/ref> for his inventions in business intelligence and analytics software, Middelfart holds the most patents of any Danish person working in software.<ref name=\"Zacco\" \/> Middelfart holds an [[MBA]] from [[Henley Management College]], a [[PhD]] from [[Rushmore University]], and a PhD from [[Aalborg University]].  Middelfart founded an analytics company, Morton Systems, in 1996, and became CTO of TARGIT following TARGIT’s acquisition of his business in 1997.<ref name=Lab>{{cite"
-        ],
-        "request": "What significant invention is Herman Hollerith known for, and what lasting impact did it have on data processing?",
-        "reasoning": "Herman Hollerith is known for inventing the Hollerith machine, a mechanical tabulator that could quickly and accurately process data. This invention had a significant impact on data processing, as it enabled the rapid and efficient processing of large amounts of data, which was a major breakthrough at the time. The Hollerith machine was used for the 1890 US Census and was later used for other applications, such as business and government data processing.",
-        "response": "Herman Hollerith is known for inventing the Hollerith machine, a mechanical tabulator that could quickly and accurately process data. This invention had a significant impact on data processing, as it enabled the rapid and efficient processing of large amounts of data, which was a major breakthrough at the time. The Hollerith machine was used for the 1890 US Census and was later used for other applications, such as business and government data processing."
+        "context": "[1] docs\n\n[2] doc_ids\n\n[3] doc_uris\n\n[4] extra_columns",
+        "question": "What significant invention is Herman Hollerith known for, and what lasting impact did it have on data processing?",
+        "reasoning": "Herman Hollerith is known for inventing the punch card system, which was a significant invention in data processing. The punch card system allowed for the rapid and efficient processing of large amounts of data, which had a lasting impact on data processing. This invention enabled the automation of data processing, making it possible to quickly and accurately process large amounts of information.",
+        "answer": "Herman Hollerith is known for inventing the punch card system [1]. This invention had a lasting impact on data processing, enabling the automation of data processing and allowing for the rapid and efficient processing of large amounts of data [1]."
       },
       {
         "request": "What are some typical activities people participate in during Halloween?",
@@ -32,23 +26,46 @@
       }
     ],
     "signature": {
-      "instructions": "You are a historian tasked with documenting the significant inventions of Herman Hollerith. Given the context of Herman Hollerith's life and work, provide a response to the request: What significant invention is Herman Hollerith known for, and what lasting impact did it have on data processing?",
+      "instructions": "Answer the user's question using only the information from the provided context passages.\nWhen using information from a passage, cite it with [n], where n is the passage number as provided.\nFor example: \"Air pollution can affect respiratory health [1].\"\nOnly use the passages as sources for your answer.",
       "fields": [
         {
           "prefix": "Context:",
-          "description": "${context}"
+          "description": "List of context passages, each assigned a number starting from 1"
         },
         {
-          "prefix": "Request:",
-          "description": "${request}"
+          "prefix": "Question:",
+          "description": "The user's question"
         },
         {
           "prefix": "Reasoning: Let's think step by step in order to",
           "description": "${reasoning}"
         },
         {
-          "prefix": "Response:",
-          "description": "${response}"
+          "prefix": "Answer:",
+          "description": "Concise answer that cites source passages, e.g., [1], [2]"
+        }
+      ]
+    },
+    "lm": null
+  },
+  "query_rewriter.predict": {
+    "traces": [],
+    "train": [],
+    "demos": [],
+    "signature": {
+      "instructions": "You are a historian tasked with retrieving relevant information from a vast dataset. Rewrite the user's question to optimize it for vector search retrieval, making the query more specific, adding relevant keywords, and ensuring it captures the user's intent. For example, take the question \"What significant invention is Herman Hollerith known for, and what lasting impact did it have on data processing?\" and transform it into a more specific and keyword-rich query.",
+      "fields": [
+        {
+          "prefix": "Original Question:",
+          "description": "The original user question"
+        },
+        {
+          "prefix": "Reasoning: Let's think step by step in order to",
+          "description": "${reasoning}"
+        },
+        {
+          "prefix": "Rewritten Query:",
+          "description": "Optimized query for better retrieval results"
         }
       ]
     },

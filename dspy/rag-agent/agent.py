@@ -74,22 +74,126 @@ dspy.settings.configure(lm=_lm)
 dspy_config = model_config.get("dspy_config") or {}
 _RESPONSE_GENERATOR_SIGNATURE = dspy_config.get("response_generator_signature", "context, request -> response")
 
+class RewriteQuery(dspy.Signature):
+    """
+    Rewrite the user's question to optimize it for vector search retrieval.
+    Make the query more specific, add relevant keywords, and ensure it captures the user's intent.
+    """
+    original_question = dspy.InputField(desc="The original user question")
+    rewritten_query = dspy.OutputField(desc="Optimized query for better retrieval results")
+
+class GenerateCitedAnswer(dspy.Signature):
+    """
+    Answer the user's question using only the information from the provided context passages.
+    When using information from a passage, cite it with [n], where n is the passage number as provided.
+    For example: "Air pollution can affect respiratory health [1]."
+    Only use the passages as sources for your answer.
+    """
+    context = dspy.InputField(desc="List of context passages, each assigned a number starting from 1")
+    question = dspy.InputField(desc="The user's question")
+    answer = dspy.OutputField(desc="Concise answer that cites source passages, e.g., [1], [2]")
+
 
 class _DSPyRAGProgram(dspy.Module):
     """Minimal DSPy module: retrieve → generate."""
 
-    def __init__(self, retriever: DatabricksRM):
+    def __init__(self, retriever: DatabricksRM, config=None):
         super().__init__()
         self.retriever = retriever
         self.lm = _lm
-        self.response_generator = dspy.ChainOfThought(_RESPONSE_GENERATOR_SIGNATURE)
+        self.response_generator = dspy.ChainOfThought(GenerateCitedAnswer)
+        
+        # Get field names from config
+        self.config = config or model_config
+        vs_config = self.config.get("vector_search") or {}
+        agent_config = self.config.get("agent_config") or {}
+        
+        # Query rewriting configuration
+        self.use_query_rewriter = agent_config.get("use_query_rewriter", True)
+        if self.use_query_rewriter:
+            self.query_rewriter = dspy.ChainOfThought(RewriteQuery)
+        
+        # Dynamic field mapping from config
+        self.text_field = vs_config.get("text_column_name", "chunk")
+        self.id_field = vs_config.get("docs_id_column_name", "id")
+        self.columns = vs_config.get("columns", ["id", "title", "chunk_id"])
+        
+        # Extract metadata fields (exclude the main text and id fields)
+        self.metadata_fields = [col for col in self.columns if col not in [self.text_field, self.id_field]]
 
     def forward(self, request: str):
-        retrieved_context = self.retriever(request)
+
+        # Optionally rewrite the query for better retrieval
+        search_query = request
+        if self.use_query_rewriter:
+            with dspy.context(lm=self.lm):
+                rewrite_result = self.query_rewriter(original_question=request)
+                search_query = rewrite_result.rewritten_query
+                print(f"🔄 Original: {request}")
+                print(f"🎯 Rewritten: {search_query}")
+
+        # Get the context from the retriever using the (possibly rewritten) query
+        retrieved_context = self.retriever(search_query)
+
+        # Format passages with numbers and metadata for better context
+        numbered_passages = []
+        for i, passage in enumerate(retrieved_context):
+            content = None
+            metadata_info = ""
+            
+            # Handle structured passage objects
+            if hasattr(passage, self.text_field):
+                # Vector search returns objects with configured text field
+                content = getattr(passage, self.text_field)
+                
+                # Add metadata from all configured columns
+                for field in self.metadata_fields:
+                    if hasattr(passage, field):
+                        value = getattr(passage, field)
+                        if value:
+                            metadata_info += f" ({field.title()}: {value})"
+                
+                # Add ID if available and different from text field
+                if hasattr(passage, self.id_field):
+                    id_value = getattr(passage, self.id_field)
+                    if id_value:
+                        metadata_info += f" ({self.id_field.upper()}: {id_value})"
+                        
+            elif isinstance(passage, dict):
+                # Handle dictionary format - use configured field names
+                content = passage.get(self.text_field)
+                if not content:
+                    # Fallback to common field names
+                    content = passage.get('content', passage.get('text', str(passage)))
+                
+                # Add metadata from configured columns
+                for field in self.metadata_fields:
+                    value = passage.get(field)
+                    if value:
+                        metadata_info += f" ({field.title()}: {value})"
+                
+                # Add ID if available
+                id_value = passage.get(self.id_field)
+                if id_value:
+                    metadata_info += f" ({self.id_field.upper()}: {id_value})"
+            else:
+                # Fallback for simple string passages
+                content = str(passage)
+            
+            # Add numbered passage
+            if content:
+                numbered_passages.append(f"[{i+1}] {content}{metadata_info}")
+            else:
+                numbered_passages.append(f"[{i+1}] {str(passage)}")
+        
+        context = "\n\n".join(numbered_passages)
+
+        # Generate the response
         with dspy.context(lm=self.lm):
-            response = self.response_generator(
-                context=retrieved_context.docs, request=request
-            ).response
+            result = self.response_generator(
+                context=context, question=request
+            )
+            response = result.answer  # Use 'answer' from GenerateCitedAnswer signature
         return dspy.Prediction(response=response)
 
 
@@ -163,8 +267,8 @@ class DSPyRAGChatAgent(ChatAgent):
             return None
         
         try:
-            # Create a base program with retriever
-            base_program = _DSPyRAGProgram(build_retriever(self.config))
+            # Create a base program with retriever and config
+            base_program = _DSPyRAGProgram(build_retriever(self.config), self.config)
             
             # Load the optimized state
             if artifact_path.endswith('.json'):
@@ -196,10 +300,10 @@ class DSPyRAGChatAgent(ChatAgent):
                 self.rag = optimized
             else:
                 print("⚠️  No optimized program found, using default")
-                self.rag = _DSPyRAGProgram(build_retriever(self.config))
+                self.rag = _DSPyRAGProgram(build_retriever(self.config), self.config)
         else:
             print("🔄 Using base DSPy program (optimization disabled)")
-            self.rag = _DSPyRAGProgram(build_retriever(self.config))
+            self.rag = _DSPyRAGProgram(build_retriever(self.config), self.config)
 
     # -------------------------------------------------- internal helpers ----
     @staticmethod

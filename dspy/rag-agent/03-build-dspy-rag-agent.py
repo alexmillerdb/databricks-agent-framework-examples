@@ -892,7 +892,7 @@ if OPTIMIZE_AGENT and optimization_results:
 
 print(f"\n🔗 **Model Artifacts:**")
 print(f"  - 📍 **Model URI**: {model_info.model_uri}")
-print(f"  - 📦 **Registered Name**: {uc_registered_model_info.registered_model_name}")
+print(f"  - 📦 **Registered Name**: {uc_registered_model_info.name}")
 if DEPLOY_MODEL and 'deployment' in locals() and deployment:
     print(f"  - 🌐 **Endpoint**: {deployment.endpoint_name}")
 

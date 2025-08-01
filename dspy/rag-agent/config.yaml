@@ -25,6 +25,7 @@ dspy_config:
 # Agent Configuration
 agent_config:
   use_optimized: true
+  use_query_rewriter: true  # Enable query rewriting for better retrieval
   enable_tracing: true
   verbose: true
   max_iterations: 10

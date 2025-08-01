@@ -1,8 +1,8 @@
 {
   "program_type": "_DSPyRAGProgram",
-  "base_score": 50.87,
-  "optimized_score": 52.27,
-  "improvement": 1.4000000000000057,
+  "base_score": 28.33,
+  "optimized_score": 38.33,
+  "improvement": 10.0,
   "config": {
     "optimizer": "MIPROv2",
     "training_examples": 10,
@@ -15,6 +15,7 @@
     },
     "agent_config": {
       "use_optimized": true,
+      "use_query_rewriter": true,
       "enable_tracing": true,
       "verbose": true,
       "max_iterations": 10
