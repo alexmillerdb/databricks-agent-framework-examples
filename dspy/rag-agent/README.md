@@ -30,15 +30,44 @@ This framework demonstrates how to build production-ready RAG agents using inter
 
 ```
 ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
-│   Data Prep     │───▶│   Vector Search │───▶│   RAG Agent     │
-│   (Step 1)      │    │   Index (Step 1)│    │   (Step 2)      │
-└─────────────────┘    └─────────────────┘    └─────────────────┘
+│   Data Prep     │───▶│   Vector Search │───▶│  Unified Build  │
+│   (Step 1)      │    │   Index (Step 1)│    │ & Optimization  │
+└─────────────────┘    └─────────────────┘    │   (Step 2)      │
+                                               └─────────────────┘
                                                         │
                                                         ▼
-┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
-│   Deployment    │◀───│   Optimization  │◀───│   Evaluation    │
-│   (Step 4)      │    │   (Step 3)      │    │   (Step 3)      │
-└─────────────────┘    └─────────────────┘    └─────────────────┘
+                                               ┌─────────────────┐
+                                               │   Deployment    │
+                                               │   (Step 2)      │
+                                               └─────────────────┘
+```
+
+### Key Components
+
+- **agent.py**: MLflow ChatAgent with optimized program loading via `load_context()`
+- **utils.py**: Retriever building and robust optimized program loading
+- **03-build-dspy-rag-agent.py**: Unified build, optimization, and deployment workflow
+- **config.yaml**: Single configuration file for all settings
+
+## Current File Structure
+
+```
+dspy/rag-agent/
+├── 01-dspy-data-preparation.py     # Data prep & vector search index
+├── 02-create-eval-dataset.py      # Optional: create evaluation dataset
+├── 03-build-dspy-rag-agent.py     # Main workflow: build, optimize, deploy
+├── agent.py                       # MLflow ChatAgent implementation
+├── utils.py                       # Helper functions for retrieval & loading
+├── config.yaml                    # Configuration file
+├── requirements.txt               # Python dependencies
+├── optimized_rag_program.json     # Generated: optimized DSPy program
+├── program_metadata.json          # Generated: optimization metadata
+└── README.md                      # This documentation
+
+Legacy files (moved to old-* for reference):
+├── old-02-dspy-pyfunc-rag-agent.py
+├── old-03-compile-optimized-rag.py
+└── old-04-deploy-optimized-agent.py
 ```
 
 ## Prerequisites
@@ -89,9 +118,10 @@ os.environ["DSPY_LLM_ENDPOINT"] = "databricks/databricks-claude-3-7-sonnet"
 Open and run the notebooks in order in your Databricks workspace:
 
 1. **Step 1**: `01-dspy-data-preparation.py` - Data preparation and vector search index creation
-2. **Step 2**: `02-dspy-pyfunc-rag-agent.py` - Create basic RAG agent  
-3. **Step 3**: `03-compile-optimized-rag.py` - Optimize the agent (optional but recommended)
-4. **Step 4**: `04-deploy-optimized-agent.py` - Deploy optimized agent
+2. **Step 2**: `03-build-dspy-rag-agent.py` - Unified workflow: build, optimize, and deploy agent
+
+**Optional**: 
+- `02-create-eval-dataset.py` - Create custom evaluation dataset for optimization
 
 Each notebook contains interactive cells that you can run sequentially.
 
@@ -129,92 +159,71 @@ vs_index = "wikipedia_chunks_index"
 - Delta table: `{catalog}.{schema}.{table}` with chunked documents
 - Vector Search index: `{catalog}.{schema}.{index}` ready for querying
 
-### Step 2: Create Basic RAG Agent
+### Step 2: Unified Build, Optimization, and Deployment
 
-**Notebook**: `02-dspy-pyfunc-rag-agent.py`
+**Notebook**: `03-build-dspy-rag-agent.py`
 
-This interactive notebook creates a basic RAG agent using DSPy and wraps it with MLflow ChatAgent.
-
-#### What it does:
-- Sets up DSPy with your chosen LLM endpoint
-- Creates a retriever using Databricks Vector Search
-- Implements a DSPy RAG program with retrieval and generation
-- Wraps the program in MLflow ChatAgent for standardized interface
-- Logs the agent as an MLflow model
-
-#### Key features:
-- **MLflow tracing**: Full DSPy span capture
-- **Configuration management**: Using MLflow ModelConfig
-- **Deployment ready**: Can be deployed to Model Serving
-
-#### Running the notebook:
-1. Open `02-dspy-pyfunc-rag-agent.py` in your Databricks workspace
-2. Ensure environment variables are set (or update the variables in the notebook)
-3. Run all cells sequentially to build and test the RAG agent
-4. The final cells will log and deploy the model
-
-#### Expected output:
-- Logged MLflow model ready for deployment
-- Registered model in Unity Catalog
-- Deployed endpoint (if deployment is enabled)
-
-### Step 3: Optimize the RAG Agent
-
-**Notebook**: `03-compile-optimized-rag.py`
-
-This interactive notebook optimizes the RAG agent using DSPy's compilation techniques.
+This comprehensive notebook combines agent creation, optimization, and deployment into a single streamlined workflow.
 
 #### What it does:
-- Creates training examples for optimization
-- Defines custom evaluation metrics
-- Uses DSPy optimizers (MIPROv2, BootstrapFewShot) to improve performance
-- Evaluates base vs optimized program performance
-- Saves the optimized program for deployment
+- **Environment Setup**: Configures for local or Databricks execution
+- **Base Agent Creation**: Builds DSPy RAG agent with MLflow ChatAgent interface
+- **Optimization (Optional)**: Uses DSPy compilation to improve performance
+- **MLflow Logging**: Registers the agent with proper artifact handling
+- **Deployment (Optional)**: Deploys to Model Serving endpoint
 
-#### Optimization strategies:
-- **MIPROv2**: Advanced multi-stage instruction optimization
-- **BootstrapFewShot**: Few-shot learning with bootstrapping
-- **Custom metrics**: Domain-specific evaluation criteria
+#### Key Features:
+- **Unified Workflow**: Everything in one notebook for simplicity
+- **MLflow Best Practices**: Proper artifact handling for optimized programs
+- **Robust Loading**: Uses `load_context()` for reliable deployment
+- **Configuration Driven**: Single `config.yaml` controls all settings
+- **Production Ready**: Includes validation and deployment
+
+#### Configuration Options:
+```python
+# Workflow Control Parameters
+OPTIMIZE_AGENT = True          # Whether to run DSPy optimization
+DEPLOY_MODEL = True            # Whether to deploy to Model Serving
+EVAL_DATASET_NAME = "wikipedia_synthetic_eval"  # Name of evaluation dataset
+
+# Unity Catalog Configuration  
+UC_CATALOG = "users"
+UC_SCHEMA = "alex_miller"
+UC_MODEL_NAME = "dspy_rag_agent"
+```
 
 #### Running the notebook:
-1. Open `03-compile-optimized-rag.py` in your Databricks workspace
-2. Run the configuration cells to set up the optimization environment
-3. Execute the training dataset creation cells
-4. Run the optimization cells (this may take several minutes)
-5. Review the performance comparison results
+1. Open `03-build-dspy-rag-agent.py` in your Databricks workspace
+2. Configure the parameters in the configuration section
+3. Run all cells sequentially - the notebook will:
+   - Build the base RAG agent
+   - Optionally optimize using DSPy compilation
+   - Log the model with proper artifact handling
+   - Validate the model for deployment
+   - Optionally deploy to Model Serving
 
 #### Expected output:
-- Optimized DSPy program saved as artifacts
-- Performance comparison metrics
-- Optimized program ready for deployment
+- Base RAG agent with retrieval and generation capabilities
+- Optimized program (if enabled) with performance improvements
+- MLflow model registered in Unity Catalog
+- Deployed Model Serving endpoint (if enabled)
+- Performance metrics and optimization results
 
-### Step 4: Deploy Optimized Agent
+### Optional: Create Custom Evaluation Dataset
 
-**Notebook**: `04-deploy-optimized-agent.py`
+**Notebook**: `02-create-eval-dataset.py`
 
-This interactive notebook deploys the optimized agent to Databricks Model Serving.
+This optional notebook helps you create custom evaluation datasets for better optimization results.
 
 #### What it does:
-- Downloads the optimized program from MLflow artifacts
-- Creates an agent with optimized settings
-- Logs the optimized agent as a new MLflow model
-- Deploys to Model Serving with production configuration
+- Creates synthetic question-answer pairs from your data
+- Generates evaluation criteria and expected responses
+- Stores the dataset in Unity Catalog for use in optimization
 
-#### Production features:
-- **Optimized configuration**: Using `config_optimized.yaml`
-- **Performance monitoring**: Built-in metrics and logging
-- **Scalability**: Auto-scaling with scale-to-zero support
-
-#### Running the notebook:
-1. Open `04-deploy-optimized-agent.py` in your Databricks workspace
-2. Run the configuration cells to load optimized settings
-3. Execute the model download cells to retrieve the optimized program
-4. Test the optimized agent with the provided test cells
-5. Run the deployment cells to deploy to Model Serving
-
-#### Expected output:
-- Deployed model serving endpoint
-- Production-ready agent with optimized performance
+#### When to use:
+- You want to optimize for domain-specific performance
+- You have specific quality criteria for your RAG responses
+- You want more control over the optimization process
 
 ## Configuration
 
@@ -236,6 +245,11 @@ vector_search:
   columns: ["id", "title", "chunk_id"]
   top_k: 5
 
+# DSPy Configuration
+dspy_config:
+  response_generator_signature: "context, request -> response"
+  optimized_program_path: "optimized_rag_program.json"  # Fallback path
+
 # Agent Configuration
 agent_config:
   use_optimized: true
@@ -250,26 +264,24 @@ mlflow_config:
   registered_model_name: "dspy_rag_chat_agent"
 ```
 
-### Production Configuration (`config_optimized.yaml`)
+### Optimized Program Loading
 
+The framework uses MLflow's best practices for loading optimized DSPy programs:
+
+#### In Development:
+- Programs are loaded from local files during optimization
+- Paths stored in `agent_config.optimized_program_path`
+
+#### In Deployment:
+- Programs are loaded via MLflow artifacts using `load_context()`
+- Automatic path resolution in deployment environment
+- Robust fallback chain: MLflow artifacts → config paths → environment variables
+
+#### Configuration for Optimized Loading:
 ```yaml
-# LLM Configuration - Optimized for performance
-llm_config:
-  endpoint: "databricks/databricks-claude-3-7-sonnet"
-  max_tokens: 1500  # Reduced for faster response times
-  temperature: 0.0  # More deterministic responses
-  top_p: 0.9
-
-# Vector Search Configuration - Optimized retrieval
-vector_search:
-  top_k: 3  # Reduced for faster retrieval and more focused context
-
-# Agent Configuration - Optimized for production
 agent_config:
   use_optimized: true
-  enable_tracing: false  # Disabled for performance in production
-  verbose: false
-  max_iterations: 5
+  optimized_program_artifact: "optimized_program"  # MLflow artifact key
 ```
 
 ### Environment Variables
@@ -470,6 +482,16 @@ AttributeError: 'pydantic_core._pydantic_core.ValidationInfo' object has no attr
 - Agent code handles both dict and ChatAgentMessage inputs
 - Model validation warnings are non-fatal
 
+#### 6. Optimized Program Not Loading
+```bash
+No optimized program found, using default
+```
+**Solution**: This indicates the optimized program isn't loading correctly. Check:
+- MLflow artifacts are properly logged with key "optimized_program"
+- `agent_config.use_optimized` is set to `true`
+- The optimized program file exists and is valid JSON
+- Check MLflow logs for detailed loading attempts
+
 ### Debug Mode
 
 Enable verbose logging for debugging:
@@ -486,6 +508,21 @@ logging.basicConfig(level=logging.DEBUG)
 ```
 
 ## Advanced Features
+
+### MLflow Artifact Integration
+
+The framework demonstrates MLflow best practices for handling optimized programs:
+
+```python
+class DSPyRAGChatAgent(ChatAgent):
+    def load_context(self, context):
+        """MLflow calls this during model loading."""
+        if "optimized_program" in context.artifacts:
+            artifact_path = context.artifacts["optimized_program"]
+            optimized_program = self._load_optimized_from_artifact(artifact_path)
+            if optimized_program:
+                self.rag = optimized_program
+```
 
 ### Custom Retrievers
 
