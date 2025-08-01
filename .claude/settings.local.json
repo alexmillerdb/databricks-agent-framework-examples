@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pip show:*)",
+      "Bash(pip freeze)",
+      "Bash(python:*)",
+      "Bash(pip check)",
+      "Bash(git add:*)"
+    ],
+    "deny": []
+  }
+}

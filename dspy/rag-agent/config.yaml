@@ -4,7 +4,7 @@
 
 # LLM Configuration
 llm_config:
-  endpoint: "databricks/databricks-claude-3-7-sonnet"
+  endpoint: "databricks/databricks-meta-llama-3-1-8b-instruct"
   max_tokens: 2500
   temperature: 0.01
   top_p: 0.95
@@ -20,7 +20,7 @@ vector_search:
 # DSPy Configuration
 dspy_config:
   response_generator_signature: "context, request -> response"
-  optimized_program_path: null  # Will be set via environment variable DSPY_OPTIMIZED_PROGRAM_PATH
+  optimized_program_path: "optimized_rag_program.json"  # Will be set via environment variable DSPY_OPTIMIZED_PROGRAM_PATH
   
 # Agent Configuration
 agent_config:
@@ -34,10 +34,3 @@ mlflow_config:
   enable_autolog: true
   experiment_name: "dspy-rag-agent"
   registered_model_name: "dspy_rag_chat_agent"
-
-# Environment Variables (for documentation)
-# These should be set in your environment:
-# - VS_INDEX_FULLNAME: catalog.schema.index_name (Unity Catalog path)
-# - DSPY_LLM_ENDPOINT: Override LLM endpoint if needed
-# - DSPY_TOP_K: Override top_k for retrieval if needed
-# - DSPY_OPTIMIZED_PROGRAM_PATH: Path to optimized program if available 
