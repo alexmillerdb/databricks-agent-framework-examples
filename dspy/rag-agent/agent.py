@@ -106,21 +106,99 @@ class DSPyRAGChatAgent(ChatAgent):
         
         # Use provided config or global model_config
         self.config = config or model_config
+        self.rag_program = rag_program  # Store for later use in load_context
+        self.rag = None  # Will be set in load_context or here
+        
+        # If we have a custom program, use it immediately
+        if rag_program:
+            self.rag = rag_program
+        else:
+            # Otherwise, we'll set up the program in load_context (for MLflow deployment)
+            # or here (for direct usage)
+            self._setup_rag_program()
+
+    def load_context(self, context):
+        """
+        MLflow calls this method when loading the model with artifacts.
+        This is where we should load the optimized program from artifacts.
+        """
+        print("🔄 Loading MLflow context...")
+        
+        # Store the MLflow context for artifact access
+        self.context = context
+        
+        # Try to load optimized program from artifacts first
+        if hasattr(context, 'artifacts') and context.artifacts:
+            print(f"📦 Available artifacts: {list(context.artifacts.keys())}")
+            
+            if "optimized_program" in context.artifacts:
+                artifact_path = context.artifacts["optimized_program"]
+                print(f"🎯 Loading optimized program from artifact: {artifact_path}")
+                
+                try:
+                    optimized_program = self._load_optimized_from_artifact(artifact_path)
+                    if optimized_program:
+                        self.rag = optimized_program
+                        print("✅ Successfully loaded optimized program from artifact")
+                        return
+                except Exception as e:
+                    print(f"⚠️  Failed to load optimized program from artifact: {e}")
+        
+        # Fallback to regular setup if artifact loading fails
+        print("🔄 Falling back to regular program setup...")
+        self._setup_rag_program()
+
+    def _load_optimized_from_artifact(self, artifact_path: str) -> Optional[_DSPyRAGProgram]:
+        """
+        Load optimized DSPy program from MLflow artifact.
+        
+        Args:
+            artifact_path: Path to the optimized program artifact
+            
+        Returns:
+            Loaded DSPy program or None if loading fails
+        """
+        if not os.path.exists(artifact_path):
+            print(f"❌ Artifact path does not exist: {artifact_path}")
+            return None
+        
+        try:
+            # Create a base program with retriever
+            base_program = _DSPyRAGProgram(build_retriever(self.config))
+            
+            # Load the optimized state
+            if artifact_path.endswith('.json'):
+                base_program.load(artifact_path)
+                return base_program
+            else:
+                # Handle pickle files (fallback)
+                import pickle
+                with open(artifact_path, 'rb') as f:
+                    return pickle.load(f)
+                    
+        except Exception as e:
+            print(f"❌ Error loading optimized program: {e}")
+            return None
+
+    def _setup_rag_program(self):
+        """
+        Set up the RAG program using configuration or fallback methods.
+        This handles both MLflow deployment and direct usage scenarios.
+        """
         agent_config = self.config.get("agent_config") or {}
         use_optimized = agent_config.get("use_optimized", True)
         
-        # Priority: custom program > optimized program > default program
-        if rag_program:
-            self.rag = rag_program
-        elif use_optimized:
-            optimized = load_optimized_program(_DSPyRAGProgram, self.config)
+        if use_optimized:
+            # Try to load optimized program using various methods
+            optimized = load_optimized_program(_DSPyRAGProgram, self.config, getattr(self, 'context', None))
             if optimized:
-                print("Using optimized DSPy program")
+                print("✅ Using optimized DSPy program")
                 self.rag = optimized
             else:
-                print("No optimized program found, using default")
+                print("⚠️  No optimized program found, using default")
                 self.rag = _DSPyRAGProgram(build_retriever(self.config))
         else:
+            print("🔄 Using base DSPy program (optimization disabled)")
             self.rag = _DSPyRAGProgram(build_retriever(self.config))
 
     # -------------------------------------------------- internal helpers ----

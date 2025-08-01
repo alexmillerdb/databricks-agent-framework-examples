@@ -312,16 +312,18 @@ def create_final_agent(model_config, optimized_program=None, optimized_program_p
     final_config = model_config
     final_config_dict = final_config.to_dict()
 
-    # If optimization was performed, add the optimized program path to the config
+    # If optimization was performed, add the optimized program artifact reference to the config
     if OPTIMIZE_AGENT and optimized_program_path:
         if "agent_config" not in final_config_dict:
             final_config_dict["agent_config"] = {}
-        final_config_dict["agent_config"]["optimized_program_path"] = optimized_program_path
+        # Store the artifact key name, not the full path (MLflow will resolve the path)
+        final_config_dict["agent_config"]["optimized_program_artifact"] = "optimized_program"
         final_config_dict["agent_config"]["use_optimized"] = True
         final_config = mlflow.models.ModelConfig(development_config=final_config_dict)
-        print(f"Using single configuration with optimization: {CONFIG_FILE}")
+        print(f"✅ Using configuration with optimization artifact: {CONFIG_FILE}")
+        print(f"📦 Optimized program will be loaded from MLflow artifact: optimized_program")
     else:
-        print(f"Using single configuration (base): {CONFIG_FILE}")
+        print(f"🔧 Using base configuration: {CONFIG_FILE}")
 
     # Create the final agent
     if optimized_program:
@@ -890,7 +892,7 @@ if OPTIMIZE_AGENT and optimization_results:
 
 print(f"\n🔗 **Model Artifacts:**")
 print(f"  - 📍 **Model URI**: {model_info.model_uri}")
-print(f"  - 📦 **Registered Name**: {model_info.registered_model_name}")
+print(f"  - 📦 **Registered Name**: {uc_registered_model_info.registered_model_name}")
 if DEPLOY_MODEL and 'deployment' in locals() and deployment:
     print(f"  - 🌐 **Endpoint**: {deployment.endpoint_name}")
 
