@@ -148,6 +148,10 @@ class DSPyRAGChatAgent(ChatAgent):
         context: Optional[ChatContext] = None,
         custom_inputs: Optional[dict[str, Any]] = None,
     ) -> ChatAgentResponse:
+        # Convert dict messages to ChatAgentMessage objects if needed
+        if messages and isinstance(messages[0], dict):
+            messages = [ChatAgentMessage(role=msg["role"], content=msg["content"]) for msg in messages]
+        
         latest_question = self._latest_user_prompt(messages)
         answer: str = self.rag(request=latest_question).response
 
@@ -165,6 +169,10 @@ class DSPyRAGChatAgent(ChatAgent):
         context: Optional[ChatContext] = None,
         custom_inputs: Optional[dict[str, Any]] = None,
     ):
+        # Convert dict messages to ChatAgentMessage objects if needed
+        if messages and isinstance(messages[0], dict):
+            messages = [ChatAgentMessage(role=msg["role"], content=msg["content"]) for msg in messages]
+            
         latest_question = self._latest_user_prompt(messages)
         answer: str = self.rag(request=latest_question).response
 
