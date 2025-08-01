@@ -58,6 +58,8 @@ Install in Databricks notebook cells:
 dbutils.library.restartPython()
 ```
 
+**Important**: The requirements.txt file pins Pydantic to `>=2.5.0,<2.12` to avoid compatibility issues with pre-release versions that can cause validation errors in MLflow.
+
 ### Required Permissions
 
 - Unity Catalog: `CREATE`, `READ`, `WRITE` permissions on target catalog/schema
@@ -458,6 +460,15 @@ Error: OutOfMemoryError
 
 #### 4. Slow Response Times
 **Solution**: Use optimized configuration, reduce `top_k`, or enable caching.
+
+#### 5. Pydantic Validation Errors
+```bash
+AttributeError: 'pydantic_core._pydantic_core.ValidationInfo' object has no attribute 'content'
+```
+**Solution**: This occurs when MLflow's validation environment installs incompatible Pydantic versions (e.g., 2.12.0a1). The framework includes fixes:
+- Requirements pin Pydantic to `>=2.5.0,<2.12`
+- Agent code handles both dict and ChatAgentMessage inputs
+- Model validation warnings are non-fatal
 
 ### Debug Mode
 

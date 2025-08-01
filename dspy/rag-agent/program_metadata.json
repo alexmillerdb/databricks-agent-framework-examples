@@ -1,0 +1,23 @@
+{
+  "program_type": "_DSPyRAGProgram",
+  "base_score": 50.87,
+  "optimized_score": 52.27,
+  "improvement": 1.4000000000000057,
+  "config": {
+    "optimizer": "MIPROv2",
+    "training_examples": 10,
+    "optimization_level": "light",
+    "llm_config": {
+      "endpoint": "databricks/databricks-meta-llama-3-1-8b-instruct",
+      "max_tokens": 2500,
+      "temperature": 0.01,
+      "top_p": 0.95
+    },
+    "agent_config": {
+      "use_optimized": true,
+      "enable_tracing": true,
+      "verbose": true,
+      "max_iterations": 10
+    }
+  }
+}

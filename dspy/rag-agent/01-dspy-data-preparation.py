@@ -109,6 +109,7 @@ source_data_path = "dbfs:/databricks-datasets/wikipedia-datasets/data-001/en_wik
 
 n_samples = 5000
 source_df = spark.read.parquet(source_data_path).limit(n_samples)
+source_df.write.mode("overwrite").saveAsTable(f"{config['source_catalog']}.{config['source_schema']}.wikipedia_source")
 
 # We need to adjust the "id" field to be a StringType instead of an IntegerType,
 # because our IDs now have format "[ORIGINAL ID]_[CHUNK ID]".

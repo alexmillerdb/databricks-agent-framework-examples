@@ -9,5 +9,3 @@ databricks-sdk
 openai<2
 python-dotenv
 uv
-# Uncomment the line below if you still get Pydantic validation errors
-# pydantic>=2.0,<2.5 
