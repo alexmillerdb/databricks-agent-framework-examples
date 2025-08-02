@@ -9,20 +9,16 @@
       {
         "augmented": true,
         "context": "[1] docs\n\n[2] doc_ids\n\n[3] doc_uris\n\n[4] extra_columns",
-        "question": "What significant invention is Herman Hollerith known for, and what lasting impact did it have on data processing?",
-        "reasoning": "Herman Hollerith is known for inventing the punch card system, which was a significant invention in data processing. The punch card system allowed for the rapid and efficient processing of large amounts of data, which had a lasting impact on data processing. This invention enabled the automation of data processing, making it possible to quickly and accurately process large amounts of information.",
-        "answer": "Herman Hollerith is known for inventing the punch card system [1]. This invention had a lasting impact on data processing, enabling the automation of data processing and allowing for the rapid and efficient processing of large amounts of data [1]."
+        "question": "What attributes make human rights considered universal and egalitarian?",
+        "reasoning": "The concept of human rights as universal and egalitarian is rooted in the idea that all individuals, regardless of their background, culture, or nationality, possess inherent dignity and worth. This is reflected in the Universal Declaration of Human Rights (UDHR), which was adopted by the United Nations in 1948. The UDHR sets out a broad range of fundamental rights and freedoms that are considered inalienable and universal, including the right to life, liberty, and security of person, freedom from torture and cruel, inhuman, or degrading treatment, and the right to equality before the law.\n\nThe UDHR also emphasizes the importance of equality and non-discrimination, stating that all individuals are born free and equal in dignity and rights, and that everyone is entitled to all the rights and freedoms set out in the Declaration, without distinction of any kind, such as race, color, sex, language, religion, political or other opinion, national or social origin, property, birth or other status.\n\nFurthermore, the concept of human rights as universal and egalitarian is also reflected in the idea that these rights are inherent to all individuals, regardless of their nationality or citizenship. This is reflected in the principle of extraterritorial jurisdiction, which holds that states have a responsibility to protect human rights even when their actions take place outside their territorial boundaries.",
+        "answer": "Human rights are considered universal and egalitarian because they are inherent to all individuals, regardless of their background, culture, or nationality, and are protected by international law, including the Universal Declaration of Human Rights [1]. The concept of human rights emphasizes the importance of equality and non-discrimination, and states have a responsibility to protect human rights even when their actions take place outside their territorial boundaries [2]."
       },
       {
-        "request": "What are some typical activities people participate in during Halloween?",
-        "response": [
-          "Trick-or-treating is a typical Halloween activity.",
-          "Attending costume parties is a typical Halloween activity.",
-          "Decorating is a typical Halloween activity.",
-          "Carving pumpkins into jack-o'-lanterns is a typical Halloween activity.",
-          "Visiting haunted attractions is a typical Halloween activity.",
-          "Watching horror films is a typical Halloween activity."
-        ]
+        "augmented": true,
+        "context": "[1] docs\n\n[2] doc_ids\n\n[3] doc_uris\n\n[4] extra_columns",
+        "question": "What is the ovipositor in Hymenoptera often modified into?",
+        "reasoning": "The question asks about the modification of the ovipositor in Hymenoptera. To answer this, we need to look for information related to the ovipositor and its modifications in the provided context passages.",
+        "answer": "The ovipositor in Hymenoptera is often modified into a stinger [1]."
       }
     ],
     "signature": {
@@ -51,9 +47,22 @@
   "query_rewriter.predict": {
     "traces": [],
     "train": [],
-    "demos": [],
+    "demos": [
+      {
+        "augmented": true,
+        "original_question": "What attributes make human rights considered universal and egalitarian?",
+        "reasoning": "The original question is asking about the attributes that make human rights universal and egalitarian. To optimize the query, we need to make it more specific and add relevant keywords. We can break down the question into its core components: \"universal\", \"egalitarian\", and \"human rights\". We can then use these components to create a more specific and targeted query.",
+        "rewritten_query": "\"attributes of universal human rights\", \"egalitarian principles in human rights\", \"universality and egalitarianism in human rights law\""
+      },
+      {
+        "augmented": true,
+        "original_question": "What is the ovipositor in Hymenoptera often modified into?",
+        "reasoning": "The original question is asking about the modification of the ovipositor in Hymenoptera, which is a specific group of insects. To optimize the query, we can add relevant keywords and make it more specific. The ovipositor is a reproductive structure, and in Hymenoptera, it is often modified into a stinger or ovipositor-like structure. Therefore, we can add keywords like \"stinger\" and \"reproductive structure\" to make the query more specific.",
+        "rewritten_query": "What is the ovipositor in Hymenoptera often modified into, specifically a stinger or ovipositor-like reproductive structure?"
+      }
+    ],
     "signature": {
-      "instructions": "You are a historian tasked with retrieving relevant information from a vast dataset. Rewrite the user's question to optimize it for vector search retrieval, making the query more specific, adding relevant keywords, and ensuring it captures the user's intent. For example, take the question \"What significant invention is Herman Hollerith known for, and what lasting impact did it have on data processing?\" and transform it into a more specific and keyword-rich query.",
+      "instructions": "Rewrite the user's question to optimize it for vector search retrieval.\nMake the query more specific, add relevant keywords, and ensure it captures the user's intent.",
       "fields": [
         {
           "prefix": "Original Question:",

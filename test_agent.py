@@ -436,6 +436,258 @@ def test_query_rewriter_disabled():
         print(f"❌ Query rewriter disabled test failed: {e}")
         return False
 
+def test_metrics_module():
+    """Test the comprehensive metrics module."""
+    print("\n📊 Testing Metrics Module...")
+    
+    try:
+        import sys
+        sys.path.insert(0, str(Path(__file__).parent / "dspy" / "rag-agent"))
+        
+        from metrics import (
+            CitationAccuracyMetric, SemanticF1Metric, CompletenessMetric,
+            EndToEndRAGMetric, get_comprehensive_metric
+        )
+        import dspy
+        
+        # Create test examples
+        example = dspy.Example(
+            request="What is heavy metal music?",
+            response="Heavy metal is a genre of rock music characterized by aggressive sounds."
+        ).with_inputs("request")
+        
+        # Test prediction with citations
+        pred_with_citations = dspy.Prediction(
+            response="Heavy metal is a genre of rock music [1]. It developed in the late 1960s [2]."
+        )
+        
+        # Test prediction without citations
+        pred_no_citations = dspy.Prediction(
+            response="Heavy metal is a genre of rock music that developed in the late 1960s."
+        )
+        
+        # Test Citation Accuracy Metric
+        citation_metric = CitationAccuracyMetric()
+        citation_score_with = citation_metric(example, pred_with_citations)
+        citation_score_without = citation_metric(example, pred_no_citations)
+        
+        print(f"✅ Citation with citations: {citation_score_with}")
+        print(f"✅ Citation without citations: {citation_score_without}")
+        
+        # Test Semantic F1 Metric
+        semantic_metric = SemanticF1Metric()
+        semantic_score = semantic_metric(example, pred_with_citations)
+        
+        print(f"✅ Semantic F1 score: {semantic_score}")
+        
+        # Test Completeness Metric
+        completeness_metric = CompletenessMetric()
+        completeness_score = completeness_metric(example, pred_with_citations)
+        
+        print(f"✅ Completeness score: {completeness_score}")
+        
+        # Test End-to-End Metric
+        end_to_end_metric = get_comprehensive_metric()
+        overall_score = end_to_end_metric(example, pred_with_citations)
+        
+        print(f"✅ End-to-end score: {overall_score}")
+        
+        # Verify all metrics return reasonable values
+        assert isinstance(citation_score_with, bool), "Citation metric should return boolean"
+        assert isinstance(semantic_score, float), "Semantic metric should return float"
+        assert isinstance(completeness_score, (bool, float)), "Completeness metric should return bool or float"
+        assert isinstance(overall_score, float), "End-to-end metric should return float"
+        assert 0 <= overall_score <= 1, "End-to-end score should be between 0 and 1"
+        
+        return True
+        
+    except Exception as e:
+        print(f"❌ Metrics module test failed: {e}")
+        return False
+
+def test_training_examples_generation():
+    """Test generation of training examples for optimization."""
+    print("\n🎯 Testing Training Examples Generation...")
+    
+    try:
+        import dspy
+        
+        # Test creating training examples in DSPy format
+        training_examples = [
+            dspy.Example(
+                request="When did heavy metal music start?",
+                response="Heavy metal music started in the late 1960s and early 1970s in the United Kingdom and United States [1]."
+            ).with_inputs("request"),
+            
+            dspy.Example(
+                request="Who are famous heavy metal bands?",
+                response="Famous heavy metal bands include Black Sabbath, Led Zeppelin, Deep Purple, and Iron Maiden [1][2]."
+            ).with_inputs("request"),
+            
+            dspy.Example(
+                request="What instruments are used in heavy metal?",
+                response="Heavy metal typically uses electric guitars, bass guitar, drums, and vocals, often with guitar solos and powerful amplification [1]."
+            ).with_inputs("request")
+        ]
+        
+        print(f"✅ Created {len(training_examples)} training examples")
+        
+        # Verify example structure
+        for i, example in enumerate(training_examples):
+            assert hasattr(example, 'request'), f"Example {i} missing request"
+            assert hasattr(example, 'response'), f"Example {i} missing response"
+            assert example.request, f"Example {i} has empty request"
+            assert example.response, f"Example {i} has empty response"
+            print(f"   Example {i+1}: ✅ Valid structure")
+        
+        # Test example with query rewriter
+        query_rewriter_example = dspy.Example(
+            original_question="Who started heavy metal?",
+            rewritten_query="founders and originators of heavy metal music genre pioneers musicians"
+        ).with_inputs("original_question")
+        
+        assert hasattr(query_rewriter_example, 'original_question'), "Query rewriter example missing original_question"
+        assert hasattr(query_rewriter_example, 'rewritten_query'), "Query rewriter example missing rewritten_query"
+        
+        print("✅ Query rewriter example structure valid")
+        
+        return True
+        
+    except Exception as e:
+        print(f"❌ Training examples generation test failed: {e}")
+        return False
+
+def test_optimization_config():
+    """Test optimization configuration management."""
+    print("\n⚙️ Testing Optimization Configuration...")
+    
+    try:
+        import mlflow
+        import tempfile
+        import yaml
+        
+        # Create optimization config
+        optimization_config = {
+            "optimization": {
+                "use_miprov2": True,
+                "use_bootstrap": True,
+                "miprov2_config": {
+                    "num_trials": 25,  # Reduced for testing
+                    "init_temperature": 1.0,
+                    "verbose": True
+                },
+                "bootstrap_config": {
+                    "max_bootstrapped_demos": 4,
+                    "max_labeled_demos": 2,
+                    "num_candidate_programs": 5,
+                    "metric_threshold": 0.6
+                },
+                "training_examples_limit": 10,
+                "validation_examples_limit": 5
+            },
+            "vector_search": {
+                "index_fullname": "users.alex_miller.wikipedia_chunks_index",
+                "text_column_name": "chunk",
+                "docs_id_column_name": "id",
+                "columns": ["id", "title", "chunk_id"],
+                "top_k": 3  # Reduced for testing
+            },
+            "agent_config": {
+                "use_query_rewriter": True,
+                "use_optimized": False,  # Start with base program
+                "enable_tracing": False  # Disable for optimization
+            }
+        }
+        
+        # Write to temporary file
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as f:
+            yaml.dump(optimization_config, f)
+            config_path = f.name
+        
+        try:
+            # Load and validate config
+            config = mlflow.models.ModelConfig(development_config=config_path)
+            
+            # Test config access
+            opt_config = config.get("optimization") or {}
+            print(f"✅ Use MIPROv2: {opt_config.get('use_miprov2', False)}")
+            print(f"✅ Use Bootstrap: {opt_config.get('use_bootstrap', False)}")
+            print(f"✅ Training limit: {opt_config.get('training_examples_limit', 0)}")
+            
+            mipro_config = opt_config.get("miprov2_config") or {}
+            print(f"✅ MIPROv2 trials: {mipro_config.get('num_trials', 0)}")
+            
+            bootstrap_config = opt_config.get("bootstrap_config") or {}
+            print(f"✅ Bootstrap demos: {bootstrap_config.get('max_bootstrapped_demos', 0)}")
+            
+            # Verify required fields
+            assert opt_config.get("training_examples_limit", 0) > 0, "Training examples limit should be positive"
+            assert mipro_config.get("num_trials", 0) > 0, "MIPROv2 trials should be positive"
+            assert bootstrap_config.get("max_bootstrapped_demos", 0) > 0, "Bootstrap demos should be positive"
+            
+            return True
+            
+        finally:
+            # Cleanup
+            import os
+            os.unlink(config_path)
+        
+    except Exception as e:
+        print(f"❌ Optimization config test failed: {e}")
+        return False
+
+def test_dspy_optimizers():
+    """Test DSPy optimizer parameter compatibility."""
+    print("\n🔧 Testing DSPy Optimizer Parameters...")
+    
+    try:
+        import dspy
+        from dspy.teleprompt import BootstrapFewShot, MIPROv2
+        from metrics import get_comprehensive_metric
+        
+        # Test metric function
+        def dummy_metric(example, pred, trace=None):
+            """Dummy metric for testing optimizer initialization."""
+            return 0.5
+        
+        # Test BootstrapFewShot with correct parameters
+        print("📚 Testing BootstrapFewShot parameters...")
+        try:
+            bootstrap_optimizer = BootstrapFewShot(
+                metric=dummy_metric,
+                max_bootstrapped_demos=2,  # Small number for test
+                max_labeled_demos=2,
+                metric_threshold=0.5
+                # num_candidate_programs=5,  # This parameter should NOT exist
+            )
+            print("✅ BootstrapFewShot initialized successfully")
+        except Exception as e:
+            print(f"❌ BootstrapFewShot failed: {e}")
+            return False
+        
+        # Test MIPROv2 with correct parameters
+        print("🧠 Testing MIPROv2 parameters...")
+        try:
+            mipro_optimizer = MIPROv2(
+                metric=dummy_metric,
+                auto="light",
+                num_candidates=5,  # Should be num_candidates, NOT num_trials
+                init_temperature=0.5,
+                verbose=False,
+                track_stats=True
+            )
+            print("✅ MIPROv2 initialized successfully")
+        except Exception as e:
+            print(f"❌ MIPROv2 failed: {e}")
+            return False
+        
+        print("✅ All DSPy optimizer parameters are correct")
+        return True
+        
+    except Exception as e:
+        print(f"❌ DSPy optimizer test failed: {e}")
+        return False
+
 def interactive_test():
     """Interactive testing mode for rapid iteration."""
     print("\n💬 Interactive Testing Mode")
@@ -515,6 +767,10 @@ def main():
         test_metadata_extraction,
         test_query_rewriter,
         test_query_rewriter_disabled,
+        test_metrics_module,
+        test_training_examples_generation,
+        test_optimization_config,
+        test_dspy_optimizers,
     ]
     
     passed = 0
