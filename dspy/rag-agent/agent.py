@@ -55,9 +55,35 @@ if mlflow_config.get("enable_autolog", True):
 
 # Get LLM configuration
 llm_config = model_config.get("llm_config") or {}
-LLM_ENDPOINT = os.getenv("DSPY_LLM_ENDPOINT", llm_config.get("endpoint", "databricks/databricks-claude-3-7-sonnet"))
+llm_endpoints = model_config.get("llm_endpoints") or {}
 
-# Instantiate the LM and set DSPy global settings
+# Helper function to create LLM instances for different components
+def create_llm_for_component(component_name: str, fallback_config: dict = None):
+    """Create an LLM instance for a specific component.
+    
+    Args:
+        component_name: Name of the component (e.g., 'query_rewriter', 'response_generator')
+        fallback_config: Fallback configuration if component-specific config not found
+    
+    Returns:
+        dspy.LM instance configured for the component
+    """
+    # Use component-specific config if available, otherwise fallback to default
+    component_config = llm_endpoints.get(component_name, fallback_config or llm_config)
+    
+    # Allow environment variable override for each component
+    env_var_name = f"DSPY_{component_name.upper()}_ENDPOINT"
+    endpoint = os.getenv(env_var_name, component_config.get("endpoint", "databricks/databricks-claude-3-7-sonnet"))
+    
+    return dspy.LM(
+        model=endpoint,
+        max_tokens=component_config.get("max_tokens", 2500),
+        temperature=component_config.get("temperature", 0.01),
+        top_p=component_config.get("top_p", 0.95)
+    )
+
+# Create default LLM (for backward compatibility)
+LLM_ENDPOINT = os.getenv("DSPY_LLM_ENDPOINT", llm_config.get("endpoint", "databricks/databricks-claude-3-7-sonnet"))
 _lm = dspy.LM(
     model=LLM_ENDPOINT,
     max_tokens=llm_config.get("max_tokens", 2500),
@@ -100,11 +126,19 @@ class _DSPyRAGProgram(dspy.Module):
     def __init__(self, retriever: DatabricksRM, config=None):
         super().__init__()
         self.retriever = retriever
+        self.config = config or model_config
+        
+        # Create component-specific LLMs
+        self.query_rewriter_lm = create_llm_for_component("query_rewriter")
+        self.response_generator_lm = create_llm_for_component("response_generator")
+        
+        # Use default LM as fallback
         self.lm = _lm
+        
+        # Initialize response generator with its specific LLM
         self.response_generator = dspy.ChainOfThought(GenerateCitedAnswer)
         
         # Get field names from config
-        self.config = config or model_config
         vs_config = self.config.get("vector_search") or {}
         agent_config = self.config.get("agent_config") or {}
         
@@ -126,7 +160,7 @@ class _DSPyRAGProgram(dspy.Module):
         # Optionally rewrite the query for better retrieval
         search_query = request
         if self.use_query_rewriter:
-            with dspy.context(lm=self.lm):
+            with dspy.context(lm=self.query_rewriter_lm):
                 rewrite_result = self.query_rewriter(original_question=request)
                 search_query = rewrite_result.rewritten_query
                 print(f"🔄 Original: {request}")
@@ -134,17 +168,62 @@ class _DSPyRAGProgram(dspy.Module):
 
         # Get the context from the retriever using the (possibly rewritten) query
         retrieved_context = self.retriever(search_query)
+        
+        # Handle DSPy Prediction objects from retriever
+        if hasattr(retrieved_context, 'docs'):
+            # DSPy retriever returned a Prediction with docs attribute
+            documents = retrieved_context.docs
+            print(f"🔍 Retrieved {len(documents) if documents else 0} documents from Prediction.docs")
+        elif hasattr(retrieved_context, '_store') and 'docs' in retrieved_context._store:
+            # Access docs from internal store
+            documents = retrieved_context._store['docs']
+            print(f"🔍 Retrieved {len(documents) if documents else 0} documents from Prediction._store['docs']")
+        elif isinstance(retrieved_context, list):
+            # Direct list of documents
+            documents = retrieved_context
+            print(f"🔍 Retrieved {len(documents) if documents else 0} documents as list")
+        else:
+            # Fallback - try to convert to list
+            try:
+                documents = list(retrieved_context)
+                print(f"🔍 Retrieved {len(documents) if documents else 0} documents via list conversion")
+            except:
+                print(f"❌ Cannot extract documents from retriever response of type {type(retrieved_context)}")
+                if hasattr(retrieved_context, '__dict__'):
+                    print(f"📋 Available attributes: {list(retrieved_context.__dict__.keys())}")
+                return dspy.Prediction(response="I encountered an error accessing the retrieved documents.")
+        
+        # Validate we have documents
+        if not documents or len(documents) == 0:
+            print("⚠️  No documents retrieved - vector search returned empty results")
+            return dspy.Prediction(response="I couldn't find any relevant information to answer your question.")
+        
+        # Debug: show structure of first document
+        try:
+            first_doc = documents[0]
+            print(f"📄 Sample document type: {type(first_doc)}")
+            if hasattr(first_doc, '__dict__'):
+                available_fields = list(first_doc.__dict__.keys()) if hasattr(first_doc, '__dict__') else []
+                print(f"📋 Available fields: {available_fields}")
+            elif isinstance(first_doc, dict):
+                print(f"📋 Available keys: {list(first_doc.keys())}")
+        except (IndexError, AttributeError) as e:
+            print(f"⚠️  Error accessing first document: {e}")
 
         # Format passages with numbers and metadata for better context
         numbered_passages = []
-        for i, passage in enumerate(retrieved_context):
+        content_extraction_issues = []
+        
+        for i, passage in enumerate(documents):
             content = None
             metadata_info = ""
+            extraction_method = "unknown"
             
             # Handle structured passage objects
             if hasattr(passage, self.text_field):
                 # Vector search returns objects with configured text field
                 content = getattr(passage, self.text_field)
+                extraction_method = f"attribute.{self.text_field}"
                 
                 # Add metadata from all configured columns
                 for field in self.metadata_fields:
@@ -162,9 +241,19 @@ class _DSPyRAGProgram(dspy.Module):
             elif isinstance(passage, dict):
                 # Handle dictionary format - use configured field names
                 content = passage.get(self.text_field)
+                extraction_method = f"dict.{self.text_field}"
+                
                 if not content:
                     # Fallback to common field names
-                    content = passage.get('content', passage.get('text', str(passage)))
+                    for fallback_field in ['content', 'text', 'chunk']:
+                        if fallback_field in passage and passage[fallback_field]:
+                            content = passage[fallback_field]
+                            extraction_method = f"dict.{fallback_field}_fallback"
+                            break
+                    
+                    if not content:
+                        content = str(passage)
+                        extraction_method = "dict.str_fallback"
                 
                 # Add metadata from configured columns
                 for field in self.metadata_fields:
@@ -179,17 +268,39 @@ class _DSPyRAGProgram(dspy.Module):
             else:
                 # Fallback for simple string passages
                 content = str(passage)
+                extraction_method = "str_fallback"
+            
+            # Validate content quality
+            if not content or (isinstance(content, str) and len(content.strip()) == 0):
+                content_extraction_issues.append(f"Passage {i+1}: Empty content via {extraction_method}")
+                content = f"[No content available from passage {i+1}]"
+                
+            elif isinstance(content, str) and len(content.strip()) < 10:
+                content_extraction_issues.append(f"Passage {i+1}: Very short content ({len(content.strip())} chars) via {extraction_method}")
+            
+            # Debug: show content extraction for first few passages
+            if i < 2:  # Only show first 2 to avoid spam
+                content_preview = content[:100] + "..." if len(str(content)) > 100 else str(content)
+                print(f"📄 Passage {i+1} extracted via {extraction_method}: {content_preview}")
             
             # Add numbered passage
-            if content:
-                numbered_passages.append(f"[{i+1}] {content}{metadata_info}")
-            else:
-                numbered_passages.append(f"[{i+1}] {str(passage)}")
+            numbered_passages.append(f"[{i+1}] {content}{metadata_info}")
+        
+        # Report content extraction issues
+        if content_extraction_issues:
+            print(f"⚠️  Content extraction issues: {'; '.join(content_extraction_issues)}")
+        
+        # Validate we have meaningful content
+        total_content_length = sum(len(str(p)) for p in numbered_passages)
+        print(f"📊 Total context length: {total_content_length} characters across {len(numbered_passages)} passages")
+        
+        if total_content_length < 50:  # Very little content
+            print("⚠️  Very little content retrieved - responses may be poor")
         
         context = "\n\n".join(numbered_passages)
 
-        # Generate the response
-        with dspy.context(lm=self.lm):
+        # Generate the response with the response generator's specific LLM
+        with dspy.context(lm=self.response_generator_lm):
             result = self.response_generator(
                 context=context, question=request
             )
@@ -278,7 +389,13 @@ class DSPyRAGChatAgent(ChatAgent):
                 # Handle pickle files (fallback)
                 import pickle
                 with open(artifact_path, 'rb') as f:
-                    return pickle.load(f)
+                    loaded_program = pickle.load(f)
+                    # Ensure the loaded program has the correct LLMs
+                    if hasattr(loaded_program, 'query_rewriter_lm'):
+                        loaded_program.query_rewriter_lm = create_llm_for_component("query_rewriter")
+                    if hasattr(loaded_program, 'response_generator_lm'):
+                        loaded_program.response_generator_lm = create_llm_for_component("response_generator")
+                    return loaded_program
                     
         except Exception as e:
             print(f"❌ Error loading optimized program: {e}")

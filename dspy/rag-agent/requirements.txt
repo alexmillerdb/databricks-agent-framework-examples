@@ -9,3 +9,5 @@ databricks-sdk
 openai<2
 python-dotenv
 uv
+langchain==0.3.0 
+tiktoken>=0.8.0

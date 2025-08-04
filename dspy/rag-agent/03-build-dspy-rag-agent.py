@@ -51,7 +51,7 @@ def setup_environment():
     Set up the execution environment for either local development or Databricks.
     
     Returns:
-        tuple: (spark_session, user_name)
+        tuple: (spark_session, user_name, script_dir)
     """
     try:    
         # Load environment variables for local testing
@@ -84,10 +84,16 @@ def setup_environment():
     user_name = spark.sql("SELECT current_user()").collect()[0][0]
     print(f"\n👤 User: {user_name}")
     
-    return spark, user_name
+    # Get the directory where this script is located
+    try:
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+    except NameError:
+        script_dir = os.getcwd()
+    
+    return spark, user_name, script_dir
 
 # Initialize environment
-spark, user_name = setup_environment()
+spark, user_name, script_dir = setup_environment()
 
 # COMMAND ----------
 
@@ -117,26 +123,21 @@ OPTIMIZATION_CONFIG = {
     "strategy": "multi_stage",      # Options: "miprov2_only", "bootstrap_only", "multi_stage"
     "auto_level": "light",          # Options: "light", "medium", "heavy"  
     "num_threads": 2,               # Concurrent threads for optimization
-    "training_examples_limit": 10,  # Max training examples to use
-    "evaluation_examples_limit": 5, # Max examples for evaluation
+    "training_examples_limit": 50,  # Max training examples to use
+    "evaluation_examples_limit": 10, # Max examples for evaluation
     "miprov2_config": {
-        "num_trials": 25,           # Number of optimization trials
         "init_temperature": 1.0,    # Initial temperature for optimization
-        "verbose": True
+        "verbose": True,
+        "num_candidates": 8,         # Number of candidate programs
+        "metric_threshold": 0.3      # Threshold for keeping examples
     },
     "bootstrap_config": {
         "max_bootstrapped_demos": 4,   # Max examples to bootstrap
         "max_labeled_demos": 2,        # Max labeled examples to use
-        "num_candidate_programs": 8,   # Number of candidate programs
-        "metric_threshold": 0.6        # Threshold for keeping examples
+        "metric_threshold": 0.3        # Threshold for keeping examples
     }
 }
 
-# Get the directory where this script is located
-try:
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-except NameError:
-    script_dir = os.getcwd()
 CONFIG_FILE = os.path.join(script_dir, "config.yaml")
 EVAL_DATASET_TABLE = f"{UC_CATALOG}.{UC_SCHEMA}.{EVAL_DATASET_NAME}"
 
@@ -150,7 +151,7 @@ def print_configuration():
     print(f"  - Optimization Strategy: {OPTIMIZATION_CONFIG['strategy']}")
     print(f"  - Optimization Level: {OPTIMIZATION_CONFIG['auto_level']}")
     print(f"  - Training Examples: {OPTIMIZATION_CONFIG['training_examples_limit']}")
-    print(f"  - MIPROv2 Trials: {OPTIMIZATION_CONFIG['miprov2_config']['num_trials']}")
+    print(f"  - MIPROv2 Candidates: {OPTIMIZATION_CONFIG['miprov2_config']['num_candidates']}")
     print(f"  - Bootstrap Demos: {OPTIMIZATION_CONFIG['bootstrap_config']['max_bootstrapped_demos']}")
     print(f"  - Concurrent Threads: {OPTIMIZATION_CONFIG['num_threads']}")
 
@@ -395,20 +396,12 @@ def log_model_to_mlflow(final_config, llm_config, vector_search_config, optimize
             model_config=final_config.to_dict(),
             artifacts=artifacts,
             pip_requirements=os.path.join(script_dir, "requirements.txt"),
-            # pip_requirements=[
-            # f"dspy=={dspy.__version__}",
-            # f"databricks-agents=={get_distribution('databricks-agents').version}",
-            # f"mlflow=={mlflow.__version__}",
-            # "openai<2",
-            # f"databricks-sdk=={get_distribution('databricks-sdk').version}"
-            # ],
             resources=resources,
             input_example={"messages": test_messages},
             code_paths=[
                 os.path.join(script_dir, "agent.py"), 
                 os.path.join(script_dir, "utils.py")
             ],
-            # registered_model_name=f"{UC_CATALOG}.{UC_SCHEMA}.{UC_MODEL_NAME}"
         )
         
         # Log parameters
@@ -580,7 +573,7 @@ print("🔨 Building base DSPy RAG agent...")
 # Build retriever from configuration
 retriever = build_retriever(model_config)
 
-# Configure DSPy LM
+# Configure DSPy LM for main RAG generation
 endpoint = llm_config.get("endpoint", "databricks/databricks-meta-llama-3-3-70b-instruct")
 _lm = dspy.LM(
     endpoint,
@@ -588,6 +581,19 @@ _lm = dspy.LM(
     max_tokens=llm_config.get("max_tokens", 2500),
     temperature=llm_config.get("temperature", 0.01)
 )
+
+# Configure separate LM for optimization evaluation judges
+optimization_judge_config = model_config.to_dict().get("llm_endpoints", {}).get("optimization_judge", llm_config)
+judge_endpoint = optimization_judge_config.get("endpoint", "databricks/databricks-claude-3-7-sonnet")
+_judge_lm = dspy.LM(
+    judge_endpoint,
+    cache=False,
+    max_tokens=optimization_judge_config.get("max_tokens", 1000),
+    temperature=optimization_judge_config.get("temperature", 0.0)
+)
+
+print(f"🎯 Main LM: {endpoint}")
+print(f"⚖️  Judge LM: {judge_endpoint}")
 
 # Create base program
 base_program = _DSPyRAGProgram(retriever)
@@ -632,7 +638,8 @@ def run_optimization_workflow(_lm, base_program, llm_config, model_config):
     print("\n2️⃣ Setting up comprehensive metrics...")
     
     # Primary metric for DSPy optimization (needs to return float/bool)
-    rag_evaluation_metric = setup_evaluation_metric(_lm)
+    # Use the dedicated judge LM for evaluation instead of the main generation LM
+    rag_evaluation_metric = setup_evaluation_metric(_judge_lm)
     
     # Additional metrics for detailed analysis
     comprehensive_metric = get_comprehensive_metric()
@@ -728,7 +735,7 @@ def run_optimization_workflow(_lm, base_program, llm_config, model_config):
                 print(f"❌ Bootstrap optimization failed: {e}")
         
         # Stage 2: MIPROv2 optimization for advanced improvements
-        if OPTIMIZATION_CONFIG.get("miprov2_config", {}).get("num_trials", 0) > 0:
+        if OPTIMIZATION_CONFIG.get("miprov2_config", {}).get("num_candidates", 0) > 0:
             print("\n🧠 Stage 2: MIPROv2 optimization...")
             try:
                 from dspy.teleprompt import MIPROv2
@@ -736,12 +743,12 @@ def run_optimization_workflow(_lm, base_program, llm_config, model_config):
                 mipro_config = OPTIMIZATION_CONFIG["miprov2_config"]
                 mipro_optimizer = MIPROv2(
                     metric=rag_evaluation_metric,
-                    auto=OPTIMIZATION_CONFIG['auto_level'],
-                    # Note: Cannot set num_candidates when auto is specified
+                    auto=OPTIMIZATION_CONFIG['auto_level'],  # When auto is set, num_candidates should be None
                     init_temperature=mipro_config["init_temperature"],
                     num_threads=OPTIMIZATION_CONFIG['num_threads'],
                     verbose=mipro_config.get("verbose", True),
-                    track_stats=True
+                    track_stats=True,
+                    metric_threshold=mipro_config.get("metric_threshold")
                 )
                 
                 with dspy.context(lm=_lm):
@@ -772,12 +779,12 @@ def run_optimization_workflow(_lm, base_program, llm_config, model_config):
             mipro_config = OPTIMIZATION_CONFIG["miprov2_config"]
             optimizer = MIPROv2(
                 metric=rag_evaluation_metric,
-                auto=OPTIMIZATION_CONFIG['auto_level'],
-                # Note: Cannot set num_candidates when auto is specified
+                auto=OPTIMIZATION_CONFIG['auto_level'],  # When auto is set, num_candidates should be None
                 init_temperature=mipro_config["init_temperature"],
                 num_threads=OPTIMIZATION_CONFIG['num_threads'],
                 verbose=mipro_config.get("verbose", True),
-                track_stats=True
+                track_stats=True,
+                metric_threshold=mipro_config.get("metric_threshold")
             )
             
             with dspy.context(lm=_lm):

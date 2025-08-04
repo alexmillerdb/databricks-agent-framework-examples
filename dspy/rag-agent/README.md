@@ -4,8 +4,9 @@ A comprehensive framework for building, optimizing, and deploying Retrieval-Augm
 
 ## 🎯 Key Achievements
 
-- **172% Performance Improvement**: From 18.33% to 49.80% accuracy through DSPy optimization
+- **42.5% Performance Improvement**: From 35.10% to 50.00% accuracy through DSPy optimization
 - **Advanced RAG Architecture**: Query rewriting, dynamic field mapping, and citation generation
+- **Dedicated LLM Judge**: Separate Claude 3.7 Sonnet for optimization evaluation (critical for quality)
 - **Production Ready**: Full MLflow integration with deployment to Model Serving endpoints
 - **Comprehensive Metrics**: Multi-dimensional evaluation framework for RAG quality
 - **Rapid Development**: Includes test suite and modular design for quick iteration
@@ -19,6 +20,10 @@ A comprehensive framework for building, optimizing, and deploying Retrieval-Augm
 5. [Configuration](#configuration)
 6. [Usage Examples](#usage-examples)
 7. [Optimization](#optimization)
+   - [Optimization Results](#optimization-results)
+   - [LLM Judge for Optimization](#llm-judge-for-optimization)
+   - [Tuning DSPy Optimizers](#tuning-dspy-optimizers)
+   - [DSPy Optimization Techniques](#dspy-optimization-techniques)
 8. [Deployment](#deployment)
 9. [Troubleshooting](#troubleshooting)
 10. [Advanced Features](#advanced-features)
@@ -31,6 +36,7 @@ This framework demonstrates how to build production-ready RAG agents using inter
 - **Databricks Vector Search**: For efficient document retrieval
 - **MLflow**: For experiment tracking, model management, and deployment
 - **MLflow ChatAgent**: For standardized agent interfaces
+- **Dedicated LLM Judge**: Claude 3.7 Sonnet for optimization evaluation (key to 42.5% improvement)
 
 > **Note**: All components are designed as interactive Databricks notebooks that you run cell-by-cell in your Databricks workspace. Each notebook includes detailed markdown documentation and step-by-step instructions.
 
@@ -279,6 +285,29 @@ llm_config:
   temperature: 0.01
   top_p: 0.95
 
+# Component-specific LLM configurations (optional - falls back to llm_config if not specified)
+llm_endpoints:
+  # LLM for query rewriting (can use a smaller, faster model)
+  query_rewriter:
+    endpoint: "databricks/databricks-meta-llama-3-1-8b-instruct"
+    max_tokens: 150
+    temperature: 0.3
+    top_p: 0.95
+  
+  # LLM for RAG response generation (main model)
+  response_generator:
+    endpoint: "databricks/databricks-meta-llama-3-3-70b-instruct"
+    max_tokens: 2500
+    temperature: 0.01
+    top_p: 0.95
+  
+  # LLM for optimization evaluation judges (CRITICAL for optimization quality)
+  optimization_judge:
+    endpoint: "databricks/databricks-claude-3-7-sonnet"
+    max_tokens: 1000
+    temperature: 0.0  # Use 0.0 for consistent evaluation
+    top_p: 0.95
+
 # Vector Search Configuration
 vector_search:
   index_fullname: users.alex_miller.wikipedia_chunks_index
@@ -407,13 +436,274 @@ agent = DSPyRAGChatAgent(config=config)
 
 ### 🚀 Optimization Results
 
-The framework achieves **remarkable performance improvements** through DSPy optimization:
+The framework achieves **significant performance improvements** through DSPy optimization:
 
-- **Baseline Score**: 18.33%
-- **Optimized Score**: 49.80%
-- **Total Improvement**: +31.47 points **(172% improvement!)**
+- **Baseline Score**: 35.10%
+- **Optimized Score**: 50.00%
+- **Total Improvement**: +14.90 points **(42.5% improvement!)**
 
-This dramatic improvement demonstrates the power of DSPy's optimization techniques combined with our multi-stage RAG architecture.
+This substantial improvement demonstrates the power of DSPy's optimization techniques combined with our multi-stage RAG architecture and dedicated LLM judge configuration.
+
+### 🏛️ LLM Judge for Optimization
+
+**CRITICAL**: The framework uses a dedicated **LLM judge** for optimization evaluation, separate from the main RAG generation model. This is essential for achieving high-quality optimization results.
+
+#### Judge vs Generator Separation
+
+```yaml
+llm_endpoints:
+  # Main RAG response generation
+  response_generator:
+    endpoint: "databricks/databricks-meta-llama-3-3-70b-instruct"
+    temperature: 0.01  # Low temperature for consistent responses
+    
+  # Dedicated optimization evaluation judge  
+  optimization_judge:
+    endpoint: "databricks/databricks-claude-3-7-sonnet"
+    temperature: 0.0   # Zero temperature for deterministic evaluation
+    max_tokens: 1000   # Shorter for evaluation tasks
+```
+
+#### Why This Matters
+
+1. **Model Specialization**: 
+   - **Claude 3.7 Sonnet** excels at evaluation and scoring tasks
+   - **Llama 3.3 70B** optimized for generation and reasoning
+   
+2. **Evaluation Consistency**: 
+   - Temperature 0.0 ensures reproducible scoring
+   - Dedicated judge prevents evaluation bias from generation model
+   
+3. **Cost Optimization**:
+   - Lower max_tokens (1000 vs 2500) for evaluation tasks
+   - More efficient resource allocation
+   
+4. **Performance Impact**:
+   - **42.5% improvement** achieved partially due to accurate judge evaluation
+   - Better optimization guidance leads to better final model
+
+#### Implementation Details
+
+The judge LM is used specifically for:
+- **BootstrapFewShot** optimization metric evaluation
+- **MIPROv2** program scoring and selection
+- **Comprehensive evaluation** during optimization stages
+
+```python
+# The framework automatically configures separate LMs:
+print(f"🎯 Main LM: {main_endpoint}")      # For generation
+print(f"⚖️  Judge LM: {judge_endpoint}")    # For evaluation
+```
+
+### 🎛️ Tuning DSPy Optimizers
+
+Understanding how to tune DSPy optimizers is crucial for achieving optimal performance. This section provides detailed guidance on parameter tuning, scaling, and experimentation strategies.
+
+#### **Optimization Strategy Selection**
+
+```python
+OPTIMIZATION_CONFIG = {
+    "strategy": "multi_stage",  # Options: "miprov2_only", "bootstrap_only", "multi_stage"
+    "auto_level": "light",      # Options: "light", "medium", "heavy"
+    "num_threads": 2,           # Concurrent optimization threads
+    "training_examples_limit": 50,   # Training set size
+    "evaluation_examples_limit": 10, # Evaluation set size
+}
+```
+
+**Strategy Guidance:**
+- **`multi_stage`**: Best for production - combines quick wins (Bootstrap) with deep optimization (MIPROv2)
+- **`bootstrap_only`**: Fast iteration, good for initial development (5-10 minutes)
+- **`miprov2_only`**: Deepest optimization, best final results (30-60+ minutes)
+
+#### **BootstrapFewShot Tuning Guide**
+
+```python
+"bootstrap_config": {
+    "max_bootstrapped_demos": 4,   # Examples to generate/bootstrap
+    "max_labeled_demos": 2,        # Labeled examples to include
+    "metric_threshold": 0.3        # Quality threshold for examples
+}
+```
+
+**Parameter Effects:**
+
+| Parameter | Range | Effect of Increase | Effect of Decrease | Time Impact |
+|-----------|-------|-------------------|-------------------|-------------|
+| `max_bootstrapped_demos` | 0-16 | Better few-shot learning, more diverse examples | Faster optimization, less overfitting | +2-5 min per demo |
+| `max_labeled_demos` | 0-16 | More human examples, better grounding | Less influence from manual examples | +1-2 min per demo |
+| `metric_threshold` | 0.0-1.0 | Higher quality examples only | More examples accepted, potentially noisy | Minimal |
+
+**Tuning Recommendations:**
+- **Start with**: `max_bootstrapped_demos=4, max_labeled_demos=2`
+- **For better quality**: Increase `metric_threshold` to 0.5-0.7
+- **For more diversity**: Increase `max_bootstrapped_demos` to 8-12
+- **For faster testing**: Use `max_bootstrapped_demos=2, max_labeled_demos=1`
+
+#### **MIPROv2 Tuning Guide**
+
+```python
+"miprov2_config": {
+    "init_temperature": 1.0,    # Starting temperature for exploration
+    "verbose": True,            # Detailed optimization logs
+    "num_candidates": 8,        # Candidate programs (when auto=None)
+    "metric_threshold": 0.3     # Quality threshold
+}
+```
+
+**Auto Level Impact:**
+
+| Auto Level | Time | Exploration | Best For |
+|------------|------|-------------|----------|
+| `"light"` | 10-20 min | Basic instruction tuning | Quick iterations, development |
+| `"medium"` | 30-60 min | Instructions + demonstrations | Balanced optimization |
+| `"heavy"` | 60-120+ min | Full program search | Maximum performance |
+
+**Parameter Effects:**
+
+| Parameter | Range | Effect of Increase | Effect of Decrease | Optimization Impact |
+|-----------|-------|-------------------|-------------------|---------------------|
+| `init_temperature` | 0.1-2.0 | More exploration, diverse candidates | More conservative, faster convergence | Higher = better final results but slower |
+| `num_threads` | 1-8 | Faster parallel optimization | Sequential optimization | Linear speedup with cores |
+| `metric_threshold` | 0.0-1.0 | Stricter quality requirements | More permissive optimization | Higher = better quality but fewer candidates |
+
+**Advanced Tuning:**
+- **For exploration**: Set `init_temperature=1.5-2.0`
+- **For stability**: Set `init_temperature=0.5-0.8`
+- **For speed**: Use `auto="light"` with `num_threads=4-8`
+- **For quality**: Use `auto="heavy"` with `metric_threshold=0.5+`
+
+#### **Training Data Tuning**
+
+```python
+"training_examples_limit": 50,   # How many examples to use
+"evaluation_examples_limit": 10, # How many for evaluation
+```
+
+**Scaling Guidelines:**
+
+| Dataset Size | Training Limit | Evaluation Limit | Expected Time |
+|--------------|----------------|------------------|---------------|
+| Small (testing) | 10-20 | 5 | 5-15 min |
+| Medium (development) | 30-50 | 10 | 15-30 min |
+| Large (production) | 100-200 | 20-30 | 45-90 min |
+| Very Large | 500+ | 50+ | 2-4 hours |
+
+**Data Quality vs Quantity:**
+- **Quality matters more**: 50 high-quality examples > 200 mediocre ones
+- **Diversity is key**: Ensure examples cover different query types
+- **Balance**: 80/20 split between training/evaluation is optimal
+
+#### **Experimentation Workflow**
+
+**1. Quick Iteration (5-10 minutes):**
+```python
+{
+    "strategy": "bootstrap_only",
+    "training_examples_limit": 20,
+    "bootstrap_config": {
+        "max_bootstrapped_demos": 2,
+        "max_labeled_demos": 1,
+        "metric_threshold": 0.3
+    }
+}
+```
+
+**2. Development Testing (20-30 minutes):**
+```python
+{
+    "strategy": "multi_stage",
+    "auto_level": "light",
+    "training_examples_limit": 50,
+    "num_threads": 4
+}
+```
+
+**3. Production Optimization (60-90 minutes):**
+```python
+{
+    "strategy": "multi_stage",
+    "auto_level": "medium",
+    "training_examples_limit": 100,
+    "evaluation_examples_limit": 20,
+    "num_threads": 8,
+    "miprov2_config": {
+        "init_temperature": 1.5,
+        "metric_threshold": 0.5
+    }
+}
+```
+
+**4. Maximum Performance (2-4 hours):**
+```python
+{
+    "strategy": "miprov2_only",
+    "auto_level": "heavy",
+    "training_examples_limit": 200,
+    "evaluation_examples_limit": 50,
+    "num_threads": 8,
+    "miprov2_config": {
+        "init_temperature": 2.0,
+        "metric_threshold": 0.6
+    }
+}
+```
+
+#### **Monitoring Optimization Progress**
+
+**Key Metrics to Watch:**
+```
+📊 Baseline Score: 0.351
+📚 Stage 1: Bootstrap optimization...
+📊 Bootstrap Score: 0.485 (+38% improvement)
+🧠 Stage 2: MIPROv2 optimization...
+📊 MIPROv2 Score: 0.500 (+3% additional)
+```
+
+**Optimization Plateaus:**
+- If improvement < 5% between stages, consider:
+  - Increasing `training_examples_limit`
+  - Adjusting `init_temperature` higher
+  - Switching to `"heavy"` auto level
+  - Improving evaluation dataset quality
+
+#### **Cost-Performance Trade-offs**
+
+| Approach | Time | Cost* | Expected Improvement | Use Case |
+|----------|------|-------|---------------------|----------|
+| Bootstrap only | 10 min | $ | +20-50% | Development |
+| Light multi-stage | 30 min | $$ | +30-60% | Testing |
+| Medium multi-stage | 60 min | $$$ | +40-80% | Pre-production |
+| Heavy MIPROv2 | 120+ min | $$$$ | +50-100% | Production |
+
+*Cost relative to LLM API calls during optimization
+
+#### **Common Tuning Patterns**
+
+**1. "My optimization is too slow"**
+- Reduce `training_examples_limit` to 20-30
+- Use `"bootstrap_only"` strategy
+- Set `auto_level="light"`
+- Increase `num_threads` to match CPU cores
+
+**2. "My optimization improvement is minimal"**
+- Increase `training_examples_limit` to 100+
+- Use higher `init_temperature` (1.5-2.0)
+- Switch to `auto_level="medium"` or `"heavy"`
+- Improve evaluation dataset quality
+- Check if judge LLM is properly configured
+
+**3. "My optimized model performs worse on real queries"**
+- Increase `evaluation_examples_limit` for better validation
+- Ensure evaluation set represents real-world distribution
+- Reduce `max_bootstrapped_demos` to avoid overfitting
+- Increase `metric_threshold` for quality control
+
+**4. "Optimization keeps failing or timing out"**
+- Reduce batch sizes: lower `training_examples_limit`
+- Decrease `num_threads` to reduce memory pressure
+- Use `"bootstrap_only"` for stability
+- Check for data quality issues in training set
 
 ### DSPy Optimization Techniques
 
@@ -459,6 +749,53 @@ optimizer = dspy.MIPROv2(
     track_stats=True
 )
 ```
+
+### 📋 DSPy Optimizer Quick Reference Card
+
+#### **Parameter Cheat Sheet**
+
+**BootstrapFewShot:**
+```python
+BootstrapFewShot(
+    metric=your_metric,              # Required: evaluation function
+    max_bootstrapped_demos=4,        # Generated examples (0-16)
+    max_labeled_demos=2,             # Human examples (0-16)
+    metric_threshold=0.3             # Quality filter (0.0-1.0)
+)
+```
+
+**MIPROv2:**
+```python
+MIPROv2(
+    metric=your_metric,              # Required: evaluation function
+    auto="light",                    # "light"/"medium"/"heavy" or None
+    init_temperature=1.0,            # Exploration level (0.1-2.0)
+    num_threads=2,                   # Parallel threads (1-8)
+    verbose=True,                    # Show progress
+    track_stats=True,                # Track optimization stats
+    metric_threshold=0.3             # Quality filter (0.0-1.0)
+)
+```
+
+#### **Quick Tuning Guide**
+
+| Goal | Strategy | Key Settings |
+|------|----------|--------------|
+| **Fast testing** | `bootstrap_only` | `max_bootstrapped_demos=2`, 20 examples |
+| **Balanced** | `multi_stage` + `light` | Default settings, 50 examples |
+| **Max quality** | `miprov2_only` + `heavy` | `init_temperature=2.0`, 200+ examples |
+| **Debug issues** | Any | `verbose=True`, `metric_threshold=0.1` |
+
+#### **Time Estimates**
+
+| Examples | Bootstrap | Light MIPRO | Medium MIPRO | Heavy MIPRO |
+|----------|-----------|-------------|--------------|-------------|
+| 20 | 5 min | 10 min | 20 min | 40 min |
+| 50 | 10 min | 20 min | 40 min | 80 min |
+| 100 | 20 min | 40 min | 80 min | 160 min |
+| 200 | 40 min | 80 min | 160 min | 320 min |
+
+*Estimates assume 4 threads and standard compute resources
 
 ### Comprehensive Evaluation Metrics
 
@@ -599,6 +936,17 @@ No optimized program found, using default
 - The optimized program file exists and is valid JSON
 - Check MLflow logs for detailed loading attempts
 
+#### 7. Poor Optimization Results
+```bash
+Optimization improves score by less than 5%
+```
+**Solution**: This often indicates the LLM judge isn't configured properly. Verify:
+- `optimization_judge` endpoint is configured in `config.yaml`
+- Judge model (Claude 3.7 Sonnet) has proper permissions
+- Temperature is set to 0.0 for consistent evaluation
+- Judge model is different from the generation model
+- Check logs for: `🎯 Main LM:` and `⚖️ Judge LM:` to confirm separate models
+
 ### Debug Mode
 
 Enable verbose logging for debugging:
@@ -615,6 +963,35 @@ logging.basicConfig(level=logging.DEBUG)
 ```
 
 ## Advanced Features
+
+### LLM Judge Configuration
+
+The framework automatically configures separate LLMs for generation and evaluation:
+
+```python
+# Main generation LM (from llm_config or response_generator)
+_lm = dspy.LM(
+    main_endpoint,
+    temperature=0.01,
+    max_tokens=2500
+)
+
+# Dedicated judge LM (from optimization_judge config) 
+_judge_lm = dspy.LM(
+    judge_endpoint,
+    temperature=0.0,  # Deterministic evaluation
+    max_tokens=1000   # Efficient for evaluation
+)
+
+# Used in optimization evaluation
+rag_evaluation_metric = setup_evaluation_metric(_judge_lm)
+```
+
+#### Best Practices for Judge Configuration:
+- **Use Claude 3.7 Sonnet** for judge tasks (excellent at evaluation)
+- **Set temperature=0.0** for consistent, reproducible scores
+- **Lower max_tokens** for efficiency (1000 vs 2500)
+- **Separate from generation model** to avoid evaluation bias
 
 ### MLflow Artifact Integration
 
