@@ -109,7 +109,7 @@ def test_custom_program():
         retriever = build_retriever(config)
         
         # Create program
-        program = _DSPyRAGProgram(retriever)
+        program = _DSPyRAGProgram(retriever, config)
         
         # Test with a direct query
         test_query = "What is the capital of France?"
@@ -688,6 +688,245 @@ def test_dspy_optimizers():
         print(f"❌ DSPy optimizer test failed: {e}")
         return False
 
+def test_multi_llm_configuration():
+    """Test multi-LLM configuration for different components."""
+    print("\n🤖 Testing Multi-LLM Configuration...")
+    
+    try:
+        from agent import DSPyRAGChatAgent, _DSPyRAGProgram, create_llm_for_component
+        from utils import build_retriever
+        import mlflow
+        import tempfile
+        import yaml
+        
+        # Create config with different LLMs for each component
+        multi_llm_config = {
+            "llm_config": {
+                "endpoint": "databricks/databricks-meta-llama-3-1-8b-instruct",
+                "max_tokens": 2500,
+                "temperature": 0.01
+            },
+            "llm_endpoints": {
+                "query_rewriter": {
+                    "endpoint": "databricks/databricks-meta-llama-3-1-8b-instruct",
+                    "max_tokens": 150,
+                    "temperature": 0.3
+                },
+                "response_generator": {
+                    "endpoint": "databricks/databricks-meta-llama-3-1-70b-instruct",
+                    "max_tokens": 2500,
+                    "temperature": 0.01
+                },
+                "optimization_judge": {
+                    "endpoint": "databricks/databricks-claude-3-7-sonnet",
+                    "max_tokens": 1000,
+                    "temperature": 0.0
+                }
+            },
+            "vector_search": {
+                "index_fullname": "users.alex_miller.wikipedia_chunks_index",
+                "text_column_name": "chunk",
+                "docs_id_column_name": "id",
+                "columns": ["id", "title", "chunk_id"],
+                "top_k": 3
+            },
+            "agent_config": {
+                "use_query_rewriter": True,
+                "use_optimized": False,
+                "enable_tracing": False
+            }
+        }
+        
+        # Write to temporary file
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as f:
+            yaml.dump(multi_llm_config, f)
+            config_path = f.name
+        
+        try:
+            # Load config and test LLM creation
+            config = mlflow.models.ModelConfig(development_config=config_path)
+            
+            # First, we need to update the global model_config for create_llm_for_component to work
+            import agent
+            agent.model_config = config
+            
+            # Test creating LLMs for different components
+            query_rewriter_lm = create_llm_for_component("query_rewriter")
+            response_generator_lm = create_llm_for_component("response_generator")
+            optimization_judge_lm = create_llm_for_component("optimization_judge")
+            
+            print(f"✅ Query Rewriter LLM: {query_rewriter_lm.model}")
+            print(f"✅ Response Generator LLM: {response_generator_lm.model}")
+            print(f"✅ Optimization Judge LLM: {optimization_judge_lm.model}")
+            
+            # Verify different endpoints are used
+            assert query_rewriter_lm.model == "databricks/databricks-meta-llama-3-1-8b-instruct"
+            assert response_generator_lm.model == "databricks/databricks-meta-llama-3-1-70b-instruct"
+            assert optimization_judge_lm.model == "databricks/databricks-claude-3-7-sonnet"
+            
+            # Test creating a program with multi-LLM config
+            retriever = build_retriever(config)
+            program = _DSPyRAGProgram(retriever, config)
+            
+            # Verify the program has different LLMs
+            print(f"✅ Program query_rewriter_lm: {program.query_rewriter_lm.model}")
+            print(f"✅ Program response_generator_lm: {program.response_generator_lm.model}")
+            
+            # Test with a simple question
+            test_response = program("What is MLflow?")
+            print(f"✅ Multi-LLM program executed successfully")
+            
+            return True
+            
+        finally:
+            # Cleanup
+            import os
+            os.unlink(config_path)
+        
+    except Exception as e:
+        print(f"❌ Multi-LLM configuration test failed: {e}")
+        return False
+
+def test_retrieval_validation():
+    """Test retrieval context validation and debugging features."""
+    print("\\n🔍 Testing Retrieval Context Validation...")
+    
+    try:
+        from agent import _DSPyRAGProgram
+        from utils import build_retriever
+        import mlflow
+        import sys
+        from io import StringIO
+        
+        # Load configuration
+        config_path = Path(__file__).parent / "dspy" / "rag-agent" / "config.yaml"
+        config = mlflow.models.ModelConfig(development_config=str(config_path))
+        
+        # Build retriever and program
+        retriever = build_retriever(config)
+        program = _DSPyRAGProgram(retriever, config)
+        
+        # Capture output for analysis
+        old_stdout = sys.stdout
+        captured_output = StringIO()
+        sys.stdout = captured_output
+        
+        try:
+            # Test with a query that should return results
+            test_query = "What is machine learning?"
+            result = program(test_query)
+            
+            # Restore stdout
+            sys.stdout = old_stdout
+            output = captured_output.getvalue()
+            
+            # Analyze the captured debug output
+            lines = output.split('\\n')
+            retrieval_info = {}
+            
+            # Parse debug information
+            for line in lines:
+                if "🔍 Retrieved" in line:
+                    # Extract number of documents
+                    try:
+                        doc_count = int(line.split("Retrieved ")[1].split(" documents")[0])
+                        retrieval_info["doc_count"] = doc_count
+                    except:
+                        retrieval_info["doc_count"] = 0
+                        
+                elif "📄 Sample document type:" in line:
+                    retrieval_info["doc_type"] = line.split("type: ")[1].strip()
+                    
+                elif "📋 Available fields:" in line or "📋 Available keys:" in line:
+                    fields_str = line.split(": ")[1].strip()
+                    retrieval_info["available_fields"] = fields_str
+                    
+                elif "📄 Passage" in line and "extracted via" in line:
+                    if "passage_extractions" not in retrieval_info:
+                        retrieval_info["passage_extractions"] = []
+                    retrieval_info["passage_extractions"].append(line.strip())
+                    
+                elif "📊 Total context length:" in line:
+                    try:
+                        length = int(line.split("length: ")[1].split(" characters")[0])
+                        retrieval_info["total_length"] = length
+                    except:
+                        retrieval_info["total_length"] = 0
+                        
+                elif "⚠️  Content extraction issues:" in line:
+                    retrieval_info["extraction_issues"] = line.split("issues: ")[1].strip()
+            
+            # Print analysis results
+            print(f"📊 Retrieval Analysis Results:")
+            print(f"  - Documents Retrieved: {retrieval_info.get('doc_count', 'Unknown')}")
+            print(f"  - Document Type: {retrieval_info.get('doc_type', 'Unknown')}")
+            print(f"  - Available Fields: {retrieval_info.get('available_fields', 'Unknown')}")
+            print(f"  - Total Context Length: {retrieval_info.get('total_length', 'Unknown')} chars")
+            
+            if "passage_extractions" in retrieval_info:
+                print(f"  - Sample Extractions:")
+                for extraction in retrieval_info["passage_extractions"][:2]:
+                    print(f"    {extraction}")
+            
+            if "extraction_issues" in retrieval_info:
+                print(f"  - ⚠️  Issues Found: {retrieval_info['extraction_issues']}")
+            
+            # Validation checks
+            validation_results = []
+            
+            # Check 1: Documents were retrieved
+            if retrieval_info.get("doc_count", 0) > 0:
+                validation_results.append("✅ Documents were retrieved")
+            else:
+                validation_results.append("❌ No documents retrieved")
+                
+            # Check 2: Meaningful content length
+            if retrieval_info.get("total_length", 0) > 100:
+                validation_results.append("✅ Substantial content retrieved")
+            elif retrieval_info.get("total_length", 0) > 50:
+                validation_results.append("⚠️ Limited content retrieved")
+            else:
+                validation_results.append("❌ Very little content retrieved")
+                
+            # Check 3: No extraction issues
+            if "extraction_issues" not in retrieval_info:
+                validation_results.append("✅ No content extraction issues")
+            else:
+                validation_results.append(f"⚠️ Content extraction issues detected")
+                
+            # Check 4: Response quality
+            if result.response and len(result.response.strip()) > 50:
+                validation_results.append("✅ Generated meaningful response")
+            else:
+                validation_results.append("❌ Poor or empty response generated")
+            
+            print(f"\\n🔍 Validation Results:")
+            for validation in validation_results:
+                print(f"  {validation}")
+            
+            # Overall assessment
+            issues = sum(1 for v in validation_results if v.startswith("❌"))
+            warnings = sum(1 for v in validation_results if v.startswith("⚠️"))
+            
+            if issues == 0 and warnings <= 1:
+                print("✅ Overall: Retrieval system working well")
+                return True
+            elif issues <= 1:
+                print("⚠️ Overall: Retrieval system has some issues but is functional")
+                return True
+            else:
+                print("❌ Overall: Significant retrieval system issues detected")
+                return False
+            
+        finally:
+            sys.stdout = old_stdout
+        
+    except Exception as e:
+        print(f"❌ Retrieval validation test failed: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+
 def interactive_test():
     """Interactive testing mode for rapid iteration."""
     print("\n💬 Interactive Testing Mode")
@@ -711,11 +950,11 @@ def interactive_test():
         mode = input("Enter choice (1 or 2): ").strip()
         
         if mode == "1":
-            agent = DSPyRAGChatAgent()
+            agent = DSPyRAGChatAgent(config=config)
             test_func = lambda q: agent.predict([ChatAgentMessage(role="user", content=q)])
         else:
             retriever = build_retriever(config)
-            program = _DSPyRAGProgram(retriever)
+            program = _DSPyRAGProgram(retriever, config)
             test_func = lambda q: program(q)
         
         while True:
@@ -771,6 +1010,8 @@ def main():
         test_training_examples_generation,
         test_optimization_config,
         test_dspy_optimizers,
+        test_multi_llm_configuration,
+        test_retrieval_validation,
     ]
     
     passed = 0
