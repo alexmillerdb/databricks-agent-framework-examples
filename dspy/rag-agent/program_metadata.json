@@ -1,12 +1,76 @@
 {
   "program_type": "_DSPyRAGProgram",
-  "base_score": 50.87,
-  "optimized_score": 52.27,
-  "improvement": 1.4000000000000057,
+  "base_score": 18.33,
+  "optimized_score": 49.8,
+  "improvement": 31.47,
+  "optimization_history": [
+    [
+      "Bootstrap",
+      49.8
+    ]
+  ],
+  "detailed_baseline_scores": {
+    "example_1": {
+      "citation": true,
+      "semantic": true,
+      "end_to_end": true
+    },
+    "example_2": {
+      "citation": false,
+      "semantic": false,
+      "end_to_end": false
+    },
+    "example_3": {
+      "citation": false,
+      "semantic": false,
+      "end_to_end": false
+    }
+  },
+  "detailed_optimized_scores": {
+    "example_1": {
+      "citation": true,
+      "semantic": true,
+      "end_to_end": true,
+      "comprehensive": 0.62
+    },
+    "example_2": {
+      "citation": false,
+      "semantic": false,
+      "end_to_end": false,
+      "comprehensive": 0.2142857142857143
+    },
+    "example_3": {
+      "citation": true,
+      "semantic": false,
+      "end_to_end": false,
+      "comprehensive": 0.4
+    }
+  },
   "config": {
-    "optimizer": "MIPROv2",
+    "strategy": "multi_stage",
+    "optimizer_stages": [
+      "Bootstrap"
+    ],
     "training_examples": 10,
     "optimization_level": "light",
+    "optimization_config": {
+      "strategy": "multi_stage",
+      "auto_level": "light",
+      "num_threads": 2,
+      "training_examples_limit": 10,
+      "evaluation_examples_limit": 5,
+      "miprov2_config": {
+        "num_trials": 25,
+        "init_temperature": 1.0,
+        "verbose": true
+      },
+      "bootstrap_config": {
+        "max_bootstrapped_demos": 4,
+        "max_labeled_demos": 2,
+        "num_candidate_programs": 8,
+        "metric_threshold": 0.6
+      }
+    },
     "llm_config": {
       "endpoint": "databricks/databricks-meta-llama-3-1-8b-instruct",
       "max_tokens": 2500,
@@ -15,6 +79,7 @@
     },
     "agent_config": {
       "use_optimized": true,
+      "use_query_rewriter": true,
       "enable_tracing": true,
       "verbose": true,
       "max_iterations": 10

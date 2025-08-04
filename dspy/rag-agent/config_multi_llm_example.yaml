@@ -1,0 +1,63 @@
+# DSPy RAG Agent Configuration with Multi-LLM Support
+# This example shows how to use different LLM endpoints for different components
+
+# Default LLM Configuration (fallback for any component without specific config)
+llm_config:
+  endpoint: "databricks/databricks-meta-llama-3-1-8b-instruct"
+  max_tokens: 2500
+  temperature: 0.01
+  top_p: 0.95
+
+# Component-specific LLM configurations
+# Each component can have its own LLM with custom parameters
+llm_endpoints:
+  # Query Rewriter: Use a smaller, faster model with higher temperature for creativity
+  query_rewriter:
+    endpoint: "databricks/databricks-meta-llama-3-1-8b-instruct"
+    max_tokens: 150  # Shorter for query rewriting
+    temperature: 0.3  # Higher temperature for more creative rewrites
+    top_p: 0.95
+  
+  # Response Generator: Use a larger, more capable model for final answers
+  response_generator:
+    endpoint: "databricks/databricks-meta-llama-3-3-70b-instruct"
+    max_tokens: 2500
+    temperature: 0.01  # Low temperature for consistent, factual responses
+    top_p: 0.95
+  
+  # Optimization Judge: Use Claude for evaluation during optimization
+  optimization_judge:
+    endpoint: "databricks/databricks-claude-3-7-sonnet"
+    max_tokens: 1000
+    temperature: 0.0  # Zero temperature for consistent evaluation
+    top_p: 0.95
+
+# Vector Search Configuration
+vector_search:
+  index_fullname: users.alex_miller.wikipedia_chunks_index
+  text_column_name: "chunk"
+  docs_id_column_name: "id"
+  columns: ["id", "title", "chunk_id"]
+  top_k: 5
+
+# Agent Configuration
+agent_config:
+  use_optimized: true
+  use_query_rewriter: true
+  enable_tracing: true
+  verbose: true
+  max_iterations: 10
+
+# MLflow Configuration
+mlflow_config:
+  enable_autolog: true
+  experiment_name: "dspy-rag-agent-multi-llm"
+  registered_model_name: "dspy_rag_chat_agent_multi_llm"
+
+# Notes:
+# - Environment variables can override specific endpoints:
+#   - DSPY_QUERY_REWRITER_ENDPOINT
+#   - DSPY_RESPONSE_GENERATOR_ENDPOINT
+#   - DSPY_OPTIMIZATION_JUDGE_ENDPOINT
+# - If a component-specific config is not provided, it falls back to llm_config
+# - This allows for flexible deployment with different LLMs for different use cases

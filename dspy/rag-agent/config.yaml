@@ -3,11 +3,35 @@
 # vector search, and LLM settings
 
 # LLM Configuration
+# Default LLM configuration (fallback for any component without specific config)
 llm_config:
   endpoint: "databricks/databricks-meta-llama-3-1-8b-instruct"
   max_tokens: 2500
   temperature: 0.01
   top_p: 0.95
+  
+# Component-specific LLM configurations (optional - falls back to llm_config if not specified)
+llm_endpoints:
+  # LLM for query rewriting (can use a smaller, faster model)
+  query_rewriter:
+    endpoint: "databricks/databricks-meta-llama-3-1-8b-instruct"
+    max_tokens: 150
+    temperature: 0.3
+    top_p: 0.95
+  
+  # LLM for RAG response generation (main model)
+  response_generator:
+    endpoint: "databricks/databricks-meta-llama-3-3-70b-instruct"
+    max_tokens: 2500
+    temperature: 0.01
+    top_p: 0.95
+  
+  # LLM for optimization evaluation judges
+  optimization_judge:
+    endpoint: "databricks/databricks-claude-3-7-sonnet"
+    max_tokens: 1000
+    temperature: 0.0
+    top_p: 0.95
 
 # Vector Search Configuration
 vector_search:
@@ -25,6 +49,7 @@ dspy_config:
 # Agent Configuration
 agent_config:
   use_optimized: true
+  use_query_rewriter: true  # Enable query rewriting for better retrieval
   enable_tracing: true
   verbose: true
   max_iterations: 10

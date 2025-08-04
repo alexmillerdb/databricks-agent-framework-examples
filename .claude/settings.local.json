@@ -5,7 +5,10 @@
       "Bash(pip freeze)",
       "Bash(python:*)",
       "Bash(pip check)",
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "WebFetch(domain:dspy.ai)",
+      "Bash(grep:*)"
     ],
     "deny": []
   }

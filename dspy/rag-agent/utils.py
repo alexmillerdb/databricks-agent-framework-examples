@@ -131,7 +131,7 @@ def _load_program_from_path(path, program_class, config):
         # Try DSPy's native load method first
         if path.endswith('.json'):
             # Load using DSPy's save/load mechanism
-            program = program_class(build_retriever(config))
+            program = program_class(build_retriever(config), config)
             program.load(path)
             return program
         else:
@@ -166,7 +166,7 @@ def load_from_components(components_path: str, program_class, config=None):
     
     # Create base program
     retriever = build_retriever(config)
-    program = program_class(retriever)
+    program = program_class(retriever, config)
     
     # Apply optimized components
     if 'signature' in components and 'instructions' in components['signature']:

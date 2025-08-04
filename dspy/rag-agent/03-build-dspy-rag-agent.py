@@ -51,7 +51,7 @@ def setup_environment():
     Set up the execution environment for either local development or Databricks.
     
     Returns:
-        tuple: (spark_session, user_name)
+        tuple: (spark_session, user_name, script_dir)
     """
     try:    
         # Load environment variables for local testing
@@ -84,10 +84,16 @@ def setup_environment():
     user_name = spark.sql("SELECT current_user()").collect()[0][0]
     print(f"\n👤 User: {user_name}")
     
-    return spark, user_name
+    # Get the directory where this script is located
+    try:
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+    except NameError:
+        script_dir = os.getcwd()
+    
+    return spark, user_name, script_dir
 
 # Initialize environment
-spark, user_name = setup_environment()
+spark, user_name, script_dir = setup_environment()
 
 # COMMAND ----------
 
@@ -114,17 +120,24 @@ UC_MODEL_NAME = "dspy_rag_agent"
 
 # DSPy Optimization Settings
 OPTIMIZATION_CONFIG = {
-    "auto_level": "light",          # Options: "light", "medium", "heavy"
+    "strategy": "multi_stage",      # Options: "miprov2_only", "bootstrap_only", "multi_stage"
+    "auto_level": "light",          # Options: "light", "medium", "heavy"  
     "num_threads": 2,               # Concurrent threads for optimization
-    "training_examples_limit": 10,  # Max training examples to use
-    "evaluation_examples_limit": 5 # Max examples for evaluation
+    "training_examples_limit": 50,  # Max training examples to use
+    "evaluation_examples_limit": 10, # Max examples for evaluation
+    "miprov2_config": {
+        "init_temperature": 1.0,    # Initial temperature for optimization
+        "verbose": True,
+        "num_candidates": 8,         # Number of candidate programs
+        "metric_threshold": 0.3      # Threshold for keeping examples
+    },
+    "bootstrap_config": {
+        "max_bootstrapped_demos": 4,   # Max examples to bootstrap
+        "max_labeled_demos": 2,        # Max labeled examples to use
+        "metric_threshold": 0.3        # Threshold for keeping examples
+    }
 }
 
-# Get the directory where this script is located
-try:
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-except NameError:
-    script_dir = os.getcwd()
 CONFIG_FILE = os.path.join(script_dir, "config.yaml")
 EVAL_DATASET_TABLE = f"{UC_CATALOG}.{UC_SCHEMA}.{EVAL_DATASET_NAME}"
 
@@ -135,8 +148,11 @@ def print_configuration():
     print(f"  - Deploy Model: {DEPLOY_MODEL}")
     print(f"  - Config File: {CONFIG_FILE}")
     print(f"  - Eval Dataset: {EVAL_DATASET_TABLE}")
+    print(f"  - Optimization Strategy: {OPTIMIZATION_CONFIG['strategy']}")
     print(f"  - Optimization Level: {OPTIMIZATION_CONFIG['auto_level']}")
     print(f"  - Training Examples: {OPTIMIZATION_CONFIG['training_examples_limit']}")
+    print(f"  - MIPROv2 Candidates: {OPTIMIZATION_CONFIG['miprov2_config']['num_candidates']}")
+    print(f"  - Bootstrap Demos: {OPTIMIZATION_CONFIG['bootstrap_config']['max_bootstrapped_demos']}")
     print(f"  - Concurrent Threads: {OPTIMIZATION_CONFIG['num_threads']}")
 
 print_configuration()
@@ -154,23 +170,13 @@ print_configuration()
 
 # Standard library imports
 import os
-import pickle
-import uuid
 import json
-from typing import Any, List, Optional
 from datetime import datetime
 
 # Third-party imports  
 import dspy
 import mlflow
-from mlflow.entities import SpanType
-from mlflow.pyfunc import ChatAgent
-from mlflow.types.agent import (
-    ChatAgentChunk,
-    ChatAgentMessage,
-    ChatAgentResponse,
-    ChatContext,
-)
+from mlflow.types.agent import ChatAgentMessage
 from mlflow.models.resources import (
     DatabricksServingEndpoint,
     DatabricksVectorSearchIndex,
@@ -178,7 +184,11 @@ from mlflow.models.resources import (
 
 # Local imports
 from agent import DSPyRAGChatAgent, _DSPyRAGProgram
-from utils import build_retriever, load_optimized_program
+from utils import build_retriever
+from metrics import (
+    citation_accuracy_bool, semantic_f1_bool, end_to_end_bool,
+    get_comprehensive_metric
+)
 
 # ============================================================================
 # HELPER FUNCTIONS
@@ -386,20 +396,12 @@ def log_model_to_mlflow(final_config, llm_config, vector_search_config, optimize
             model_config=final_config.to_dict(),
             artifacts=artifacts,
             pip_requirements=os.path.join(script_dir, "requirements.txt"),
-            # pip_requirements=[
-            # f"dspy=={dspy.__version__}",
-            # f"databricks-agents=={get_distribution('databricks-agents').version}",
-            # f"mlflow=={mlflow.__version__}",
-            # "openai<2",
-            # f"databricks-sdk=={get_distribution('databricks-sdk').version}"
-            # ],
             resources=resources,
             input_example={"messages": test_messages},
             code_paths=[
                 os.path.join(script_dir, "agent.py"), 
                 os.path.join(script_dir, "utils.py")
             ],
-            # registered_model_name=f"{UC_CATALOG}.{UC_SCHEMA}.{UC_MODEL_NAME}"
         )
         
         # Log parameters
@@ -571,7 +573,7 @@ print("🔨 Building base DSPy RAG agent...")
 # Build retriever from configuration
 retriever = build_retriever(model_config)
 
-# Configure DSPy LM
+# Configure DSPy LM for main RAG generation
 endpoint = llm_config.get("endpoint", "databricks/databricks-meta-llama-3-3-70b-instruct")
 _lm = dspy.LM(
     endpoint,
@@ -579,6 +581,19 @@ _lm = dspy.LM(
     max_tokens=llm_config.get("max_tokens", 2500),
     temperature=llm_config.get("temperature", 0.01)
 )
+
+# Configure separate LM for optimization evaluation judges
+optimization_judge_config = model_config.to_dict().get("llm_endpoints", {}).get("optimization_judge", llm_config)
+judge_endpoint = optimization_judge_config.get("endpoint", "databricks/databricks-claude-3-7-sonnet")
+_judge_lm = dspy.LM(
+    judge_endpoint,
+    cache=False,
+    max_tokens=optimization_judge_config.get("max_tokens", 1000),
+    temperature=optimization_judge_config.get("temperature", 0.0)
+)
+
+print(f"🎯 Main LM: {endpoint}")
+print(f"⚖️  Judge LM: {judge_endpoint}")
 
 # Create base program
 base_program = _DSPyRAGProgram(retriever)
@@ -603,7 +618,7 @@ print(f"📤 Base Response: {base_response.response[:200]}...")
 
 def run_optimization_workflow(_lm, base_program, llm_config, model_config):
     """
-    Run the complete DSPy optimization workflow.
+    Run the complete DSPy optimization workflow with multi-stage strategy.
     
     Args:
         _lm: The DSPy language model
@@ -619,8 +634,20 @@ def run_optimization_workflow(_lm, base_program, llm_config, model_config):
     # SECTION 1: Prepare Training Data
     training_examples = prepare_training_data(spark)
     
-    # SECTION 2: Setup evaluation metric
-    rag_evaluation_metric = setup_evaluation_metric(_lm)
+    # SECTION 2: Setup Multi-Metric Evaluation
+    print("\n2️⃣ Setting up comprehensive metrics...")
+    
+    # Primary metric for DSPy optimization (needs to return float/bool)
+    # Use the dedicated judge LM for evaluation instead of the main generation LM
+    rag_evaluation_metric = setup_evaluation_metric(_judge_lm)
+    
+    # Additional metrics for detailed analysis
+    comprehensive_metric = get_comprehensive_metric()
+    citation_metric = citation_accuracy_bool
+    semantic_metric = semantic_f1_bool
+    end_to_end_metric = end_to_end_bool
+    
+    print("✅ Multi-metric evaluation system configured")
     
     # SECTION 3: Evaluate Baseline
     print("\n3️⃣ Evaluating baseline performance...")
@@ -633,58 +660,214 @@ def run_optimization_workflow(_lm, base_program, llm_config, model_config):
         display_progress=True
     )
     
+    # Detailed baseline evaluation
     with dspy.context(lm=_lm):
         baseline_score = evaluator(base_program)
+        
+        # Run additional metric analysis
+        print("📊 Running detailed baseline analysis...")
+        detailed_scores = {}
+        for i, example in enumerate(training_examples[:3]):
+            pred = base_program(example.request)
+            
+            # Citation accuracy
+            citation_score = citation_metric(example, pred)
+            
+            # Semantic F1
+            semantic_score = semantic_metric(example, pred)
+            
+            # End-to-end score
+            e2e_score = end_to_end_metric(example, pred)
+            
+            detailed_scores[f"example_{i+1}"] = {
+                "citation": citation_score,
+                "semantic": semantic_score,
+                "end_to_end": e2e_score
+            }
+            
+            print(f"  Example {i+1}: Citation={citation_score}, Semantic={semantic_score}, E2E={e2e_score}")
     
     print(f"📊 Baseline Score: {baseline_score}")
     
-    # SECTION 4: Run Optimization
-    print("\n4️⃣ Running DSPy optimization...")
+    # SECTION 4: Multi-Stage Optimization Strategy
+    print("\n4️⃣ Running multi-stage DSPy optimization...")
     
-    try:
-        # Try MIPROv2 first
-        print("Attempting MIPROv2 optimization...")
-        from dspy.teleprompt import MIPROv2
+    strategy = OPTIMIZATION_CONFIG.get("strategy", "multi_stage")
+    optimized_program = base_program
+    best_score = baseline_score
+    optimization_history = []
+    
+    if strategy == "multi_stage":
+        print("🎯 Multi-stage optimization strategy selected")
         
-        optimizer = MIPROv2(
-            metric=rag_evaluation_metric,
-            auto=OPTIMIZATION_CONFIG['auto_level'],
-            num_threads=OPTIMIZATION_CONFIG['num_threads'],
-            verbose=True,
-            track_stats=True
-        )
+        # Stage 1: Bootstrap optimization for quick wins
+        if OPTIMIZATION_CONFIG.get("bootstrap_config", {}).get("max_bootstrapped_demos", 0) > 0:
+            print("\n📚 Stage 1: Bootstrap optimization...")
+            try:
+                from dspy.teleprompt import BootstrapFewShot
+                
+                bootstrap_config = OPTIMIZATION_CONFIG["bootstrap_config"]
+                bootstrap_optimizer = BootstrapFewShot(
+                    metric=rag_evaluation_metric,
+                    max_bootstrapped_demos=bootstrap_config["max_bootstrapped_demos"],
+                    max_labeled_demos=bootstrap_config["max_labeled_demos"],
+                    metric_threshold=bootstrap_config["metric_threshold"]
+                )
+                
+                with dspy.context(lm=_lm):
+                    bootstrap_program = bootstrap_optimizer.compile(
+                        optimized_program,
+                        trainset=training_examples[:OPTIMIZATION_CONFIG['training_examples_limit']]
+                    )
+                    
+                    bootstrap_score = evaluator(bootstrap_program)
+                    print(f"📊 Bootstrap Score: {bootstrap_score}")
+                    
+                    if bootstrap_score > best_score:
+                        optimized_program = bootstrap_program
+                        best_score = bootstrap_score
+                        print("✅ Bootstrap optimization improved performance")
+                        optimization_history.append(("Bootstrap", bootstrap_score))
+                    else:
+                        print("⚠️ Bootstrap optimization did not improve performance")
+                        
+            except Exception as e:
+                print(f"❌ Bootstrap optimization failed: {e}")
         
-        with dspy.context(lm=_lm):
-            optimized_program = optimizer.compile(
-                base_program,
-                trainset=training_examples
+        # Stage 2: MIPROv2 optimization for advanced improvements
+        if OPTIMIZATION_CONFIG.get("miprov2_config", {}).get("num_candidates", 0) > 0:
+            print("\n🧠 Stage 2: MIPROv2 optimization...")
+            try:
+                from dspy.teleprompt import MIPROv2
+                
+                mipro_config = OPTIMIZATION_CONFIG["miprov2_config"]
+                mipro_optimizer = MIPROv2(
+                    metric=rag_evaluation_metric,
+                    auto=OPTIMIZATION_CONFIG['auto_level'],  # When auto is set, num_candidates should be None
+                    init_temperature=mipro_config["init_temperature"],
+                    num_threads=OPTIMIZATION_CONFIG['num_threads'],
+                    verbose=mipro_config.get("verbose", True),
+                    track_stats=True,
+                    metric_threshold=mipro_config.get("metric_threshold")
+                )
+                
+                with dspy.context(lm=_lm):
+                    mipro_program = mipro_optimizer.compile(
+                        optimized_program,  # Use current best program as base
+                        trainset=training_examples[:OPTIMIZATION_CONFIG['training_examples_limit']]
+                    )
+                    
+                    mipro_score = evaluator(mipro_program)
+                    print(f"📊 MIPROv2 Score: {mipro_score}")
+                    
+                    if mipro_score > best_score:
+                        optimized_program = mipro_program
+                        best_score = mipro_score
+                        print("✅ MIPROv2 optimization improved performance")
+                        optimization_history.append(("MIPROv2", mipro_score))
+                    else:
+                        print("⚠️ MIPROv2 optimization did not improve performance")
+                        
+            except Exception as e:
+                print(f"❌ MIPROv2 optimization failed: {e}")
+    
+    elif strategy == "miprov2_only":
+        print("🧠 MIPROv2-only optimization strategy selected")
+        try:
+            from dspy.teleprompt import MIPROv2
+            
+            mipro_config = OPTIMIZATION_CONFIG["miprov2_config"]
+            optimizer = MIPROv2(
+                metric=rag_evaluation_metric,
+                auto=OPTIMIZATION_CONFIG['auto_level'],  # When auto is set, num_candidates should be None
+                init_temperature=mipro_config["init_temperature"],
+                num_threads=OPTIMIZATION_CONFIG['num_threads'],
+                verbose=mipro_config.get("verbose", True),
+                track_stats=True,
+                metric_threshold=mipro_config.get("metric_threshold")
             )
             
-    except Exception as e:
-        # Fallback to BootstrapFewShot
-        print(f"MIPROv2 failed ({str(e)}), falling back to BootstrapFewShot...")
-        from dspy.teleprompt import BootstrapFewShot
-        
-        optimizer = BootstrapFewShot(
-            metric=rag_evaluation_metric,
-            max_bootstrapped_demos=3,
-            max_labeled_demos=3
-        )
-        
-        with dspy.context(lm=_lm):
-            optimized_program = optimizer.compile(
-                base_program,
-                trainset=training_examples
-            )
+            with dspy.context(lm=_lm):
+                optimized_program = optimizer.compile(
+                    base_program,
+                    trainset=training_examples[:OPTIMIZATION_CONFIG['training_examples_limit']]
+                )
+                best_score = evaluator(optimized_program)
+                optimization_history.append(("MIPROv2", best_score))
+                
+        except Exception as e:
+            print(f"❌ MIPROv2 optimization failed: {e}")
+            optimized_program = base_program
+            best_score = baseline_score
     
-    # SECTION 5: Evaluate Optimized Program
-    print("\n5️⃣ Evaluating optimized performance...")
+    elif strategy == "bootstrap_only":
+        print("📚 Bootstrap-only optimization strategy selected")
+        try:
+            from dspy.teleprompt import BootstrapFewShot
+            
+            bootstrap_config = OPTIMIZATION_CONFIG["bootstrap_config"]
+            optimizer = BootstrapFewShot(
+                metric=rag_evaluation_metric,
+                max_bootstrapped_demos=bootstrap_config["max_bootstrapped_demos"],
+                max_labeled_demos=bootstrap_config["max_labeled_demos"],
+                metric_threshold=bootstrap_config["metric_threshold"]
+            )
+            
+            with dspy.context(lm=_lm):
+                optimized_program = optimizer.compile(
+                    base_program,
+                    trainset=training_examples[:OPTIMIZATION_CONFIG['training_examples_limit']]
+                )
+                best_score = evaluator(optimized_program)
+                optimization_history.append(("Bootstrap", best_score))
+                
+        except Exception as e:
+            print(f"❌ Bootstrap optimization failed: {e}")
+            optimized_program = base_program
+            best_score = baseline_score
+    
+    # SECTION 5: Comprehensive Evaluation of Optimized Program
+    print("\n5️⃣ Running comprehensive evaluation of optimized program...")
     
     with dspy.context(lm=_lm):
-        optimized_score = evaluator(optimized_program)
+        optimized_score = best_score  # Already computed during optimization
+        
+        # Run detailed evaluation on optimized program
+        print("📊 Running detailed optimized analysis...")
+        optimized_detailed_scores = {}
+        for i, example in enumerate(training_examples[:3]):
+            pred = optimized_program(example.request)
+            
+            # Citation accuracy
+            citation_score = citation_metric(example, pred)
+            
+            # Semantic F1
+            semantic_score = semantic_metric(example, pred)
+            
+            # End-to-end score
+            e2e_score = end_to_end_metric(example, pred)
+            
+            # Comprehensive metric
+            comp_score = comprehensive_metric(example, pred)
+            
+            optimized_detailed_scores[f"example_{i+1}"] = {
+                "citation": citation_score,
+                "semantic": semantic_score,
+                "end_to_end": e2e_score,
+                "comprehensive": comp_score
+            }
+            
+            print(f"  Example {i+1}: Citation={citation_score}, Semantic={semantic_score}, E2E={e2e_score}, Comp={comp_score:.3f}")
     
-    print(f"📊 Optimized Score: {optimized_score}")
-    print(f"📈 Improvement: {(optimized_score - baseline_score)}")
+    print(f"📊 Final Optimized Score: {optimized_score}")
+    print(f"📈 Total Improvement: {(optimized_score - baseline_score):.3f}")
+    
+    # Print optimization history
+    if optimization_history:
+        print("\n📈 Optimization History:")
+        for stage, score in optimization_history:
+            improvement = score - baseline_score
+            print(f"  {stage}: {score:.3f} (+{improvement:.3f})")
 
     # SECTION 6: Save Optimized Program and Log to MLflow
     optimized_program_path = None
@@ -719,16 +902,21 @@ def run_optimization_workflow(_lm, base_program, llm_config, model_config):
             print(f"Error saving program: {e}")
             optimized_program_path = None
         
-        # Save program metadata
+        # Save comprehensive program metadata
         program_state = {
             "program_type": type(optimized_program).__name__,
             "base_score": float(baseline_score),
             "optimized_score": float(optimized_score),
             "improvement": float(optimized_score - baseline_score),
+            "optimization_history": optimization_history,
+            "detailed_baseline_scores": detailed_scores,
+            "detailed_optimized_scores": optimized_detailed_scores,
             "config": {
-                "optimizer": "MIPROv2",
+                "strategy": strategy,
+                "optimizer_stages": [stage for stage, _ in optimization_history],
                 "training_examples": len(training_examples),
                 "optimization_level": OPTIMIZATION_CONFIG['auto_level'],
+                "optimization_config": OPTIMIZATION_CONFIG,
                 "llm_config": llm_config,
                 "agent_config": model_config.get("agent_config") or {}
             }
@@ -743,27 +931,62 @@ def run_optimization_workflow(_lm, base_program, llm_config, model_config):
         # Log the model config as an artifact
         mlflow.log_dict(model_config.to_dict(), "model_config.json")
         
-        # Log metrics and parameters
+        # Log comprehensive metrics and parameters
         mlflow.log_param("training_examples", len(training_examples))
-        mlflow.log_param("optimizer", "MIPROv2")
+        mlflow.log_param("optimization_strategy", strategy)
+        mlflow.log_param("optimization_stages", ",".join([stage for stage, _ in optimization_history]))
         mlflow.log_param("optimization_level", OPTIMIZATION_CONFIG['auto_level'])
         mlflow.log_param("llm_endpoint", llm_config.get("endpoint"))
         mlflow.log_param("max_tokens", llm_config.get("max_tokens"))
         mlflow.log_param("temperature", llm_config.get("temperature"))
+        
+        # Primary scores
         mlflow.log_metric("base_score", baseline_score)
         mlflow.log_metric("optimized_score", optimized_score)
         mlflow.log_metric("improvement", optimized_score - baseline_score)
         
-        print(f"\nOptimization Results:")
+        # Log stage-by-stage improvements
+        for i, (stage, score) in enumerate(optimization_history):
+            mlflow.log_metric(f"stage_{i+1}_{stage.lower()}_score", score)
+            mlflow.log_metric(f"stage_{i+1}_{stage.lower()}_improvement", score - baseline_score)
+        
+        # Log detailed metric averages
+        if optimized_detailed_scores:
+            avg_citation = sum(scores["citation"] for scores in optimized_detailed_scores.values()) / len(optimized_detailed_scores)
+            avg_semantic = sum(scores["semantic"] for scores in optimized_detailed_scores.values()) / len(optimized_detailed_scores)
+            avg_e2e = sum(scores["end_to_end"] for scores in optimized_detailed_scores.values()) / len(optimized_detailed_scores)
+            avg_comp = sum(scores["comprehensive"] for scores in optimized_detailed_scores.values()) / len(optimized_detailed_scores)
+            
+            mlflow.log_metric("avg_citation_accuracy", float(avg_citation))
+            mlflow.log_metric("avg_semantic_f1", float(avg_semantic))
+            mlflow.log_metric("avg_end_to_end", float(avg_e2e))
+            mlflow.log_metric("avg_comprehensive", avg_comp)
+        
+        print(f"\n🏆 Final Optimization Results:")
         print(f"Base Score: {baseline_score:.3f}")
         print(f"Optimized Score: {optimized_score:.3f}")
-        print(f"Improvement: {optimized_score - baseline_score:.3f}")
+        print(f"Total Improvement: {optimized_score - baseline_score:.3f}")
+        print(f"Strategy Used: {strategy}")
+        print(f"Stages Applied: {[stage for stage, _ in optimization_history]}")
         print(f"Configuration: {CONFIG_FILE}")
+        
+        if optimized_detailed_scores:
+            print(f"\n📊 Detailed Metrics Summary:")
+            avg_citation = sum(scores["citation"] for scores in optimized_detailed_scores.values()) / len(optimized_detailed_scores)
+            avg_semantic = sum(scores["semantic"] for scores in optimized_detailed_scores.values()) / len(optimized_detailed_scores)
+            avg_e2e = sum(scores["end_to_end"] for scores in optimized_detailed_scores.values()) / len(optimized_detailed_scores)
+            print(f"  Average Citation Accuracy: {float(avg_citation):.3f}")
+            print(f"  Average Semantic F1: {float(avg_semantic):.3f}")
+            print(f"  Average End-to-End: {float(avg_e2e):.3f}")
     
     optimization_results = {
         "baseline_score": baseline_score,
         "optimized_score": optimized_score,
-        "improvement": optimized_score - baseline_score
+        "improvement": optimized_score - baseline_score,
+        "strategy": strategy,
+        "optimization_history": optimization_history,
+        "detailed_baseline_scores": detailed_scores,
+        "detailed_optimized_scores": optimized_detailed_scores
     }
     
     return optimized_program, optimized_program_path, optimization_results
@@ -892,7 +1115,7 @@ if OPTIMIZE_AGENT and optimization_results:
 
 print(f"\n🔗 **Model Artifacts:**")
 print(f"  - 📍 **Model URI**: {model_info.model_uri}")
-print(f"  - 📦 **Registered Name**: {uc_registered_model_info.registered_model_name}")
+print(f"  - 📦 **Registered Name**: {uc_registered_model_info.name}")
 if DEPLOY_MODEL and 'deployment' in locals() and deployment:
     print(f"  - 🌐 **Endpoint**: {deployment.endpoint_name}")
 
