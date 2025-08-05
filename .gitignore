@@ -144,6 +144,10 @@ ENV/
 env.bak/
 venv.bak/
 
+# Project-specific virtual environments
+dspy/rag-agent/venv-3.11/
+mcp/venv-3.12/
+
 # Spyder project settings
 .spyderproject
 .spyproject

@@ -3,6 +3,42 @@ Databricks Agent Examples
 
 This repository contains examples of building agents on Databricks using the Databricks Agent Framework, MLflow 3, and various AI frameworks.
 
+## Environment Management
+
+This project uses **dual virtual environments** to support different Python versions:
+
+- **DSPy Environment**: Python 3.11 (for DSPy RAG Agent examples)
+- **MCP Environment**: Python 3.12 (for Model Context Protocol examples)
+
+### Quick Setup
+
+```bash
+# Make scripts executable
+chmod +x activate-mcp.sh activate-dspy.sh env-switch.sh
+
+# Initialize both environments
+source env-switch.sh setup
+```
+
+### Environment Switching
+
+```bash
+# Check current environment status
+source env-switch.sh status
+
+# Switch to MCP environment (Python 3.12)
+source env-switch.sh mcp
+
+# Switch to DSPy environment (Python 3.11)
+source env-switch.sh dspy
+
+# Direct activation (alternative)
+source activate-mcp.sh    # MCP environment
+source activate-dspy.sh   # DSPy environment
+```
+
+See [ENVIRONMENT_SETUP.md](ENVIRONMENT_SETUP.md) for detailed setup instructions.
+
 ## Examples
 
 ### DSPy RAG Agent (`dspy/rag-agent/`)
@@ -80,17 +116,40 @@ dspy/rag-agent/
 
 See [dspy/rag-agent/README.md](dspy/rag-agent/README.md) for detailed documentation.
 
+### MCP Examples (`mcp/`)
+
+Examples for working with Databricks Model Context Protocol (MCP) using Python 3.12. Demonstrates:
+
+- **OAuth Authentication**: Secure authentication using Databricks CLI profiles
+- **Token Authentication**: Environment variable based authentication
+- **Tool Discovery**: Lists and explores available MCP tools
+- **Tool Execution**: Demonstrates calling MCP tools like `system__ai__python_exec`
+
+#### Key Features
+
+- **Python 3.12 Support**: Uses WorkspaceClient instead of databricks-connect
+- **Multiple Auth Methods**: OAuth, token, and notebook authentication
+- **Notebook Compatible**: Works as both script and Databricks notebook
+
+See [mcp/README.md](mcp/README.md) for detailed documentation.
+
 ## Requirements
 
-- Python 3.10+
-- Databricks Runtime with MLflow 3.1+
+- **DSPy Examples**: Python 3.11, Databricks Runtime with MLflow 3.1+
+- **MCP Examples**: Python 3.12, Databricks workspace with MCP enabled
 - Unity Catalog enabled workspace
 - Vector Search endpoint (for RAG examples)
 
 ## Installation
 
+Each environment has its own requirements.txt file:
+
 ```bash
+# For DSPy examples (Python 3.11)
+source env-switch.sh dspy
+pip install -r requirements.txt
+
+# For MCP examples (Python 3.12)
+source env-switch.sh mcp
 pip install -r requirements.txt
 ```
-
-**Note**: Requirements pin Pydantic to `>=2.5.0,<2.12` to avoid compatibility issues with MLflow validation.
