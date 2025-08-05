@@ -4,8 +4,15 @@ This directory contains examples of using the Databricks MCP client with Python 
 
 ## Files
 
-- **`databricks_mcp_example.py`** - Python script/notebook that works in both local development and Databricks environments
+- **`databricks_mcp_example.py`** - Example script/notebook demonstrating MCP usage
+- **`mcp_agent.py`** - Production-ready MCP agent class
+- **`deploy_mcp_agent.py`** - Deployment script for the MCP agent
+- **`auth.py`** - Shared authentication utilities
 - **`requirements.txt`** - Python dependencies for MCP functionality
+- **`examples/`** - Specific examples for different MCP server types:
+  - `vector_search_example.py` - Vector Search MCP example
+  - `uc_functions_example.py` - Unity Catalog Functions example
+  - `genie_space_example.py` - Genie Space example
 
 ## Prerequisites
 
@@ -43,6 +50,36 @@ python3.12 -m venv venv-3.12
 source venv-3.12/bin/activate
 pip install -r requirements.txt
 ```
+
+## Shared Authentication
+
+All MCP examples use a shared authentication module (`auth.py`) that provides:
+
+- **`setup_workspace_client()`** - Configure WorkspaceClient with multiple auth methods
+- **`get_current_user()`** - Get current user from workspace
+- **`get_mcp_server_url()`** - Build MCP server URLs for different server types
+- **`setup_mlflow_for_profile()`** - Configure MLflow for profiles
+- **`create_mcp_client_with_auth()`** - Create authenticated MCP clients
+
+### MCP Server Types Supported
+
+The authentication utilities support all Databricks MCP server types:
+
+1. **System AI Functions** (`system/ai`):
+   - URL: `https://<workspace>/api/2.0/mcp/functions/system/ai` 
+   - Built-in AI functions like python_exec, sql_exec, file_search
+
+2. **Vector Search** (`vector-search`):
+   - URL: `https://<workspace>/api/2.0/mcp/vector-search/{catalog}/{schema}`
+   - Access to Vector Search indexes in Unity Catalog
+
+3. **Unity Catalog Functions** (`functions`):
+   - URL: `https://<workspace>/api/2.0/mcp/functions/{catalog}/{schema}`
+   - Custom UC functions in your catalog/schema
+
+4. **Genie Space** (`genie`):
+   - URL: `https://<workspace>/api/2.0/mcp/genie/{genie_space_id}`
+   - Genie AI assistant for specific spaces
 
 ## Authentication Setup
 
@@ -112,6 +149,24 @@ The notebook includes:
 - **Comprehensive error handling**
 - **OAuth authentication** that works seamlessly in notebooks
 
+### Server-Specific Examples
+
+For specific MCP server types, use the examples in the `examples/` directory:
+
+```bash
+# Vector Search example
+python examples/vector_search_example.py --catalog my_catalog --schema my_schema
+
+# UC Functions example  
+python examples/uc_functions_example.py --catalog my_catalog --schema my_schema
+
+# Genie Space example
+python examples/genie_space_example.py --genie-space-id my_genie_space_id
+
+# All examples support --profile for OAuth
+python examples/vector_search_example.py --profile myprofile --catalog my_catalog --schema my_schema
+```
+
 ## Features
 
 ### Authentication Methods
@@ -120,8 +175,11 @@ The notebook includes:
 - **Notebook authentication** - Automatic auth in Databricks notebooks
 
 ### MCP Client Functionality
-- **Tool Discovery** - Lists all available MCP tools
-- **Tool Execution** - Demonstrates calling the `system__ai__python_exec` tool
+- **Tool Discovery** - Lists all available MCP tools across different server types
+- **Tool Execution** - Execute MCP tools with proper parameter handling
+- **Multiple Server Types** - Support for System AI, Vector Search, UC Functions, and Genie
+- **Production Agent** - `mcp_agent.py` provides a complete agent class
+- **Deployment Ready** - `deploy_mcp_agent.py` deploys agents to Model Serving
 - **Multiple auth methods** - Works with profiles, tokens, or default auth
 
 ## Example Output
@@ -195,15 +253,59 @@ logging.basicConfig(level=logging.DEBUG)
 
 ## Advanced Usage
 
+### Production MCP Agent
+
+Use the `DatabricksMCPAgent` class for production workflows:
+
+```python
+from mcp_agent import create_agent
+
+# Create agent for different server types
+system_agent = create_agent(profile="myprofile", server_type="system/ai")
+vector_agent = create_agent(
+    profile="myprofile", 
+    server_type="vector-search", 
+    catalog="my_catalog", 
+    schema="my_schema"
+)
+
+# Execute tools
+result = system_agent.execute_python_code("print('Hello from MCP!')")
+tools = vector_agent.list_available_tools()
+```
+
+### Agent Deployment
+
+Deploy the MCP agent to Databricks Model Serving:
+
+```bash
+# Deploy with OAuth profile
+python deploy_mcp_agent.py --profile myprofile
+
+# Deploy without serving endpoint (log and register only)
+python deploy_mcp_agent.py --profile myprofile --skip-deploy
+```
+
 ### Custom Tool Calls
 
 ```python
-# Example: Custom SQL execution
+# Example: System AI function
 result = mcp_client.call_tool(
     "system__ai__sql_exec", 
     {"query": "SELECT COUNT(*) FROM your_table"}
 )
-print(result.content)
+
+# Example: Vector Search
+result = mcp_client.call_tool(
+    "search_vectors", 
+    {"query": "machine learning", "top_k": 5}
+)
+
+# Example: UC Function
+result = mcp_client.call_tool(
+    "my_custom_function", 
+    {"param1": "value1", "param2": "value2"}
+)
 ```
 
 ### Exploring Available Tools
@@ -212,15 +314,33 @@ print(result.content)
 tools = mcp_client.list_tools()
 for tool in tools:
     print(f"Tool: {tool.name}")
-    print(f"Description: {tool.description}")
-    print(f"Schema: {tool.inputSchema}")
+    if hasattr(tool, 'description'):
+        print(f"Description: {tool.description}")
+    if hasattr(tool, 'inputSchema'):
+        print(f"Schema: {tool.inputSchema}")
 ```
 
 ## Next Steps
 
-1. **Explore other MCP tools** available in your workspace
-2. **Integrate MCP calls** into your agent workflows
-3. **Build custom MCP servers** for your specific use cases
-4. **Combine with DSPy** agents for enhanced functionality
+1. **Explore Server Types** - Try different MCP server types (vector-search, functions, genie)
+2. **Deploy Production Agents** - Use `deploy_mcp_agent.py` to deploy to Model Serving
+3. **Build Custom UC Functions** - Create your own functions and access via MCP
+4. **Integrate with DSPy** - Combine MCP tools with DSPy RAG agents
+5. **Create Custom Workflows** - Build complex workflows using multiple MCP server types
+
+## Architecture Overview
+
+```
+┌─────────────────────┐    ┌──────────────────────┐    ┌─────────────────────┐
+│   MCP Examples      │    │   Shared Auth        │    │   Databricks        │
+│                     │    │   (auth.py)          │    │   Workspace         │
+├─────────────────────┤    ├──────────────────────┤    ├─────────────────────┤
+│ • databricks_mcp_   │───▶│ • OAuth/CLI profiles │───▶│ • System AI         │
+│   example.py        │    │ • Token auth         │    │ • Vector Search     │
+│ • mcp_agent.py      │    │ • Notebook auth      │    │ • UC Functions      │
+│ • deploy_mcp_       │    │ • URL builders       │    │ • Genie Spaces      │
+│   agent.py          │    │ • Client creation    │    │                     │
+└─────────────────────┘    └──────────────────────┘    └─────────────────────┘
+```
 
 For more information, see the [Databricks MCP documentation](https://docs.databricks.com/en/dev-tools/mcp.html).

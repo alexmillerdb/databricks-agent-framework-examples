@@ -20,11 +20,8 @@ from typing import Optional
 from databricks_mcp import DatabricksMCPClient
 from databricks.sdk import WorkspaceClient
 
-# Optional imports for environment setup
-try:
-    from dotenv import load_dotenv
-except ImportError:
-    load_dotenv = None
+# Import shared authentication utilities
+from auth import setup_workspace_client, get_current_user, get_mcp_server_url
 
 # COMMAND ----------
 
@@ -115,8 +112,7 @@ def test_mcp_connection(profile: Optional[str] = None):
     print(f"\n👤 User: {user_name}")
     
     # Build MCP server URL
-    workspace_hostname = workspace_client.config.host
-    mcp_server_url = f"{workspace_hostname}/api/2.0/mcp/functions/system/ai"
+    mcp_server_url = get_mcp_server_url(workspace_client, "system/ai")
     
     print(f"🌐 Connecting to: {mcp_server_url}")
     
@@ -162,8 +158,9 @@ def explore_tools(profile: Optional[str] = None):
         profile: Optional Databricks CLI profile name for authentication
     """
     workspace_client = setup_workspace_client(profile)
+    mcp_server_url = get_mcp_server_url(workspace_client, "system/ai")
     mcp_client = DatabricksMCPClient(
-        server_url=f"{workspace_client.config.host}/api/2.0/mcp/functions/system/ai",
+        server_url=mcp_server_url,
         workspace_client=workspace_client
     )
     
