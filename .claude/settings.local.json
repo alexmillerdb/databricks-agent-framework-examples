@@ -8,7 +8,14 @@
       "Bash(git add:*)",
       "Bash(git commit:*)",
       "WebFetch(domain:dspy.ai)",
-      "Bash(grep:*)"
+      "Bash(grep:*)",
+      "Bash(cp:*)",
+      "Bash(mkdir:*)",
+      "Bash(touch:*)",
+      "Bash(mv:*)",
+      "Bash(tree:*)",
+      "Bash(ls:*)",
+      "Bash(find:*)"
     ],
     "deny": []
   }

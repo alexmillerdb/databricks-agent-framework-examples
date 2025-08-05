@@ -81,11 +81,23 @@ The framework implements an advanced multi-stage RAG architecture with query rew
 
 ### Key Components
 
+**Main Workflow Files:**
+- **03-build-dspy-rag-agent.py**: Clean orchestration workflow (401 lines)
 - **agent.py**: MLflow ChatAgent with optimized program loading via `load_context()`
-- **utils.py**: Retriever building and robust optimized program loading
+
+**Core Modules (in `modules/` directory):**
+- **optimizer.py**: DSPy optimization strategies (BootstrapFewShot, MIPROv2)
+- **deploy.py**: MLflow logging, model registration, and deployment
+- **utils.py**: Environment setup, retriever building, and utilities
 - **metrics.py**: Comprehensive evaluation metrics for optimization
-- **03-build-dspy-rag-agent.py**: Unified build, optimization, and deployment workflow
-- **config.yaml**: Single configuration file for all settings
+
+**Configuration (in `config/` directory):**
+- **config.yaml**: Main configuration file for all settings
+- **config_multi_llm_example.yaml**: Example multi-LLM configuration
+
+**Testing (in `tests/` directory):**
+- **test_agent.py**: Comprehensive agent testing suite
+- **test_integration.py**: Integration tests for all modules
 
 ## Current File Structure
 
@@ -93,17 +105,50 @@ The framework implements an advanced multi-stage RAG architecture with query rew
 dspy/rag-agent/
 ├── 01-dspy-data-preparation.py     # Data prep & vector search index
 ├── 02-create-eval-dataset.py      # Optional: create evaluation dataset
-├── 03-build-dspy-rag-agent.py     # Main workflow: build, optimize, deploy
+├── 03-build-dspy-rag-agent.py     # Main workflow: build, optimize, deploy (401 lines)
 ├── agent.py                       # MLflow ChatAgent implementation
-├── utils.py                       # Helper functions for retrieval & loading
-├── metrics.py                     # Comprehensive evaluation metrics
-├── test_agent.py                  # Test suite for rapid development
-├── config.yaml                    # Configuration file
 ├── requirements.txt               # Python dependencies
-├── optimized_rag_program.json     # Generated: optimized DSPy program
-├── program_metadata.json          # Generated: optimization metadata
-└── README.md                      # This documentation
+├── README.md                      # This documentation
+│
+├── config/                        # Configuration files
+│   ├── __init__.py
+│   ├── config.yaml               # Main configuration
+│   └── config_multi_llm_example.yaml  # Multi-LLM example config
+│
+├── modules/                       # Core Python modules
+│   ├── __init__.py
+│   ├── deploy.py                 # MLflow logging and deployment (390 lines)
+│   ├── optimizer.py              # DSPy optimization workflows (589 lines)
+│   ├── utils.py                  # General utilities and helpers (384 lines)
+│   └── metrics.py                # Comprehensive evaluation metrics (344 lines)
+│
+├── tests/                         # Test suite
+│   ├── __init__.py
+│   ├── test_agent.py             # Agent testing suite
+│   └── test_integration.py       # Integration tests
+│
+└── [Generated files]
+    ├── optimized_rag_program.json # Generated: optimized DSPy program
+    └── program_metadata.json      # Generated: optimization metadata
 ```
+
+### Recent Improvements
+
+The codebase has undergone significant refactoring for better maintainability:
+
+1. **Modular Architecture**: Core functionality extracted into dedicated modules
+   - `modules/optimizer.py`: All DSPy optimization logic
+   - `modules/deploy.py`: MLflow logging and deployment
+   - `modules/utils.py`: Shared utilities and environment setup
+
+2. **Clean Separation**: 
+   - Main script reduced from 1,126 to 401 lines (65% reduction)
+   - Clear separation of concerns between modules
+   - Improved testability and reusability
+
+3. **Fast Optimization Mode**: New 5-10 minute optimization configuration for rapid iteration
+
+4. **Enhanced Testing**: Comprehensive test suite with integration tests
 
 ## Prerequisites
 
@@ -183,8 +228,10 @@ This interactive notebook prepares your data and creates a Vector Search index f
 
 #### What it does:
 - Loads source data (Wikipedia articles in this example)
+- **NEW**: Applies comprehensive text cleaning (removes 22% noise from Wikipedia)
 - Chunks the text using `RecursiveCharacterTextSplitter`
 - Creates a Delta table with chunked documents
+- **NEW**: Smart vector search management (checks exists, syncs if needed)
 - Creates a Vector Search index with embeddings
 
 #### Key configurations:
@@ -232,6 +279,7 @@ This comprehensive notebook combines agent creation, optimization, and deploymen
 # Workflow Control Parameters
 OPTIMIZE_AGENT = True          # Whether to run DSPy optimization
 DEPLOY_MODEL = True            # Whether to deploy to Model Serving
+USE_FAST_OPTIMIZATION = True   # NEW: Enable 5-10 minute fast optimization mode
 EVAL_DATASET_NAME = "wikipedia_synthetic_eval"  # Name of evaluation dataset
 
 # Unity Catalog Configuration  
@@ -239,6 +287,28 @@ UC_CATALOG = "users"
 UC_SCHEMA = "alex_miller"
 UC_MODEL_NAME = "dspy_rag_agent"
 ```
+
+#### Fast Optimization Mode (NEW)
+
+The framework now includes a **fast optimization configuration** for rapid development:
+
+```python
+# Fast mode configuration (5-10 minutes)
+USE_FAST_OPTIMIZATION = True  # Enable fast mode
+
+# What it does:
+# - Uses bootstrap-only strategy (skips MIPROv2)
+# - Reduces training examples to 20
+# - Minimal evaluation set (5 examples)
+# - 4 parallel threads
+# - Perfect for testing and iteration
+```
+
+This mode is ideal for:
+- Quick testing of changes
+- Development iterations
+- Debugging optimization issues
+- Initial experimentation
 
 #### Running the notebook:
 1. Open `03-build-dspy-rag-agent.py` in your Databricks workspace
@@ -858,6 +928,21 @@ The query rewriter significantly improves retrieval quality:
 
 ### Model Serving Deployment
 
+The deployment workflow now includes comprehensive validation and testing:
+
+```python
+# The framework now follows this deployment workflow:
+# 1. Log model to MLflow
+# 2. Test logged model (BEFORE deployment)
+# 3. Validate model for deployment
+# 4. Register in Unity Catalog
+# 5. Deploy to Model Serving endpoint
+
+# This ensures no broken models reach production!
+```
+
+#### Deployment Configuration
+
 ```python
 from databricks import agents
 
@@ -874,6 +959,21 @@ agents.deploy(
     scale_to_zero=True,
     environment_vars=deployment_config
 )
+```
+
+#### MLflow Artifact Handling
+
+The framework properly handles all module dependencies:
+
+```python
+# All modules are included in MLflow artifacts:
+code_paths = [
+    "agent.py",
+    "modules/utils.py",
+    "modules/optimizer.py", 
+    "modules/deploy.py",
+    "modules/metrics.py"
+]
 ```
 
 ### Loading Deployed Models

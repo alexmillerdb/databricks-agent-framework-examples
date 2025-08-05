@@ -19,8 +19,8 @@ logging.getLogger("mlflow").setLevel(logging.ERROR)
 logging.getLogger("dspy").setLevel(logging.ERROR)
 warnings.filterwarnings("ignore")
 
-# Add the dspy/rag-agent directory to Python path for imports
-sys.path.insert(0, str(Path(__file__).parent / "dspy" / "rag-agent"))
+# Add the parent directory (dspy/rag-agent) to Python path for imports
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
 def setup_environment():
     """Set up environment for local development with Databricks connection."""
@@ -98,11 +98,11 @@ def test_custom_program():
     
     try:
         from agent import _DSPyRAGProgram
-        from utils import build_retriever
+        from modules.utils import build_retriever
         import mlflow
         
         # Load configuration
-        config_path = Path(__file__).parent / "dspy" / "rag-agent" / "config.yaml"
+        config_path = Path(__file__).parent.parent / "config" / "config.yaml"
         config = mlflow.models.ModelConfig(development_config=str(config_path))
         
         # Build retriever
@@ -161,11 +161,11 @@ def test_config_field_mapping():
     
     try:
         from agent import _DSPyRAGProgram
-        from utils import build_retriever
+        from modules.utils import build_retriever
         import mlflow
         
         # Load configuration
-        config_path = Path(__file__).parent / "dspy" / "rag-agent" / "config.yaml"
+        config_path = Path(__file__).parent.parent / "config" / "config.yaml"
         config = mlflow.models.ModelConfig(development_config=str(config_path))
         
         # Build retriever and program
@@ -270,7 +270,7 @@ def test_field_fallbacks():
     
     try:
         from agent import _DSPyRAGProgram
-        from utils import build_retriever
+        from modules.utils import build_retriever
         import mlflow
         
         # Create config with minimal field specifications
@@ -307,11 +307,11 @@ def test_metadata_extraction():
     
     try:
         from agent import _DSPyRAGProgram
-        from utils import build_retriever
+        from modules.utils import build_retriever
         import mlflow
         
         # Load configuration
-        config_path = Path(__file__).parent / "dspy" / "rag-agent" / "config.yaml"
+        config_path = Path(__file__).parent.parent / "config" / "config.yaml"
         config = mlflow.models.ModelConfig(development_config=str(config_path))
         
         # Build program
@@ -346,11 +346,11 @@ def test_query_rewriter():
     
     try:
         from agent import _DSPyRAGProgram
-        from utils import build_retriever
+        from modules.utils import build_retriever
         import mlflow
         
         # Load configuration with query rewriter enabled
-        config_path = Path(__file__).parent / "dspy" / "rag-agent" / "config.yaml"
+        config_path = Path(__file__).parent.parent / "config" / "config.yaml"
         config = mlflow.models.ModelConfig(development_config=str(config_path))
         
         # Build program
@@ -387,7 +387,7 @@ def test_query_rewriter_disabled():
     
     try:
         from agent import _DSPyRAGProgram
-        from utils import build_retriever
+        from modules.utils import build_retriever
         import mlflow
         import tempfile
         import yaml
@@ -444,7 +444,7 @@ def test_metrics_module():
         import sys
         sys.path.insert(0, str(Path(__file__).parent / "dspy" / "rag-agent"))
         
-        from metrics import (
+        from modules.metrics import (
             CitationAccuracyMetric, SemanticF1Metric, CompletenessMetric,
             EndToEndRAGMetric, get_comprehensive_metric
         )
@@ -643,7 +643,7 @@ def test_dspy_optimizers():
     try:
         import dspy
         from dspy.teleprompt import BootstrapFewShot, MIPROv2
-        from metrics import get_comprehensive_metric
+        from modules.metrics import get_comprehensive_metric
         
         # Test metric function
         def dummy_metric(example, pred, trace=None):
@@ -694,7 +694,7 @@ def test_multi_llm_configuration():
     
     try:
         from agent import DSPyRAGChatAgent, _DSPyRAGProgram, create_llm_for_component
-        from utils import build_retriever
+        from modules.utils import build_retriever
         import mlflow
         import tempfile
         import yaml
@@ -793,13 +793,13 @@ def test_retrieval_validation():
     
     try:
         from agent import _DSPyRAGProgram
-        from utils import build_retriever
+        from modules.utils import build_retriever
         import mlflow
         import sys
         from io import StringIO
         
         # Load configuration
-        config_path = Path(__file__).parent / "dspy" / "rag-agent" / "config.yaml"
+        config_path = Path(__file__).parent.parent / "config" / "config.yaml"
         config = mlflow.models.ModelConfig(development_config=str(config_path))
         
         # Build retriever and program
@@ -935,11 +935,11 @@ def interactive_test():
     try:
         from agent import DSPyRAGChatAgent, _DSPyRAGProgram
         from mlflow.types.agent import ChatAgentMessage
-        from utils import build_retriever
+        from modules.utils import build_retriever
         import mlflow
         
         # Setup
-        config_path = Path(__file__).parent / "dspy" / "rag-agent" / "config.yaml"
+        config_path = Path(__file__).parent.parent / "config" / "config.yaml"
         config = mlflow.models.ModelConfig(development_config=str(config_path))
         
         # Choose mode
