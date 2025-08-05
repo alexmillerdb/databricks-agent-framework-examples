@@ -33,14 +33,14 @@ from mlflow.types.agent import (
     ChatContext,
 )
 
-from utils import build_retriever, load_optimized_program
+from modules.utils import build_retriever, load_optimized_program
 
 # -----------------------------------------------------------------------------
 # Configuration Management
 # -----------------------------------------------------------------------------
 
 # Load configuration from config.yaml (default development config)
-CONFIG_FILE = os.path.join(os.path.dirname(__file__), "config.yaml")
+CONFIG_FILE = os.path.join(os.path.dirname(__file__), "config", "config.yaml")
 model_config = mlflow.models.ModelConfig(development_config=CONFIG_FILE)
 
 # -----------------------------------------------------------------------------
