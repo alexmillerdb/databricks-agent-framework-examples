@@ -215,9 +215,10 @@ def setup_environment() -> Tuple[DatabricksSession, str, str]:
     user_name = spark.sql("SELECT current_user()").collect()[0][0]
     print(f"\n👤 User: {user_name}")
     
-    # Get the directory where this script is located
+    # Get the parent directory (dspy/rag-agent/) since this utils.py is in modules/ subdirectory
     try:
-        script_dir = os.path.dirname(os.path.abspath(__file__))
+        # Get the parent directory of the modules directory
+        script_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     except NameError:
         script_dir = os.getcwd()
     
