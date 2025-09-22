@@ -22,7 +22,7 @@ table = "wikipedia_source"
 evaluation_table = "dspy_rag_eval_example"
 
 # load MLflow config
-config_path = "config.yaml"
+config_path = "./config/config_multi_llm_example.yaml"
 model_config = mlflow.models.ModelConfig(development_config=config_path)
 mlflow_config = model_config.get("mlflow_config") or {}
 
@@ -90,11 +90,14 @@ evaluation_uc_table_name = f"{catalog}.{schema}.{evaluation_table}"
 # Load or create MLflow evaluation dataset
 try:
     dataset = mlflow.genai.datasets.get_dataset(
-        uc_table_name=evaluation_uc_table_name
+        name=evaluation_uc_table_name
     )
 except Exception as e:
     print(f"MLflow evaluation dataset {evaluation_uc_table_name} not found... Creating dataset")
     dataset = mlflow.genai.datasets.create_dataset(
-        uc_table_name=evaluation_uc_table_name,
+        name=evaluation_uc_table_name,
         experiment_id=experiment_info.experiment_id
     )
+
+# merge records to create evaluation table
+dataset.merge_records(evals)

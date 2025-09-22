@@ -274,7 +274,7 @@ def pandas_text_splitter(iterator: Iterator[pd.DataFrame]) -> Iterator[pd.DataFr
     """
     Apache Spark pandas UDF for chunking text in a scale-out pipeline.
     """
-    text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=50)
+    text_splitter = RecursiveCharacterTextSplitter(chunk_size=5000, chunk_overlap=200)
     for pdf in iterator:
         pdf["text"] = pdf["text"].apply(text_splitter.split_text)
         chunk_pdf = pdf.explode("text")
@@ -292,7 +292,7 @@ def pandas_text_splitter(iterator: Iterator[pd.DataFrame]) -> Iterator[pd.DataFr
 # Accessing Wikipedia sample data
 source_data_path = "dbfs:/databricks-datasets/wikipedia-datasets/data-001/en_wikipedia/articles-only-parquet"
 
-n_samples = 5000
+n_samples = 1000
 source_df = spark.read.parquet(source_data_path).limit(n_samples)
 
 # Apply text cleaning to remove Wikipedia markup and improve content quality
