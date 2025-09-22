@@ -57,5 +57,5 @@ agent_config:
 # MLflow Configuration
 mlflow_config:
   enable_autolog: true
-  experiment_name: "dspy-rag-agent"
+  experiment_name: "dspy_rag_agent_experiments"
   registered_model_name: "dspy_rag_chat_agent"

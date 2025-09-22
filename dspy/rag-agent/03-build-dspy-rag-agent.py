@@ -21,14 +21,14 @@
 # MAGIC - `utils.py` - General utilities and environment setup
 # MAGIC - `agent.py` - MLflow ChatAgent implementation
 # MAGIC - `metrics.py` - Evaluation metrics and scoring
-
-"""
-DSPy RAG Agent Builder and Optimizer - Modular Orchestration Script
-
-A clean orchestration script for building, optimizing, and deploying DSPy-based RAG agents
-using MLflow and Databricks. All complex logic has been extracted to dedicated modules
-for better maintainability, testability, and reusability.
-"""
+# MAGIC
+# MAGIC """
+# MAGIC DSPy RAG Agent Builder and Optimizer - Modular Orchestration Script
+# MAGIC
+# MAGIC A clean orchestration script for building, optimizing, and deploying DSPy-based RAG agents
+# MAGIC using MLflow and Databricks. All complex logic has been extracted to dedicated modules
+# MAGIC for better maintainability, testability, and reusability.
+# MAGIC """
 
 # COMMAND ----------
 
@@ -85,7 +85,7 @@ from agent import DSPyRAGChatAgent, _DSPyRAGProgram
 # Main workflow flags
 OPTIMIZE_AGENT = True              # Set to True to run DSPy optimization
 DEPLOY_MODEL = True                # Set to True to deploy to Model Serving
-USE_FAST_OPTIMIZATION = True       # Set to True for 5-10 minute optimization (testing)
+USE_FAST_OPTIMIZATION = False       # Set to True for 5-10 minute optimization (testing)
 
 # Configuration file  
 CONFIG_FILE = "config/config.yaml"
@@ -397,5 +397,3 @@ if USE_FAST_OPTIMIZATION and OPTIMIZE_AGENT:
 
 print(f"\n🏁 Workflow completed at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 print("="*60)
-
-# COMMAND ----------

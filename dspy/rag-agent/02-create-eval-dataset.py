@@ -22,7 +22,7 @@ table = "wikipedia_source"
 evaluation_table = "dspy_rag_eval_example"
 
 # load MLflow config
-config_path = "./config/config_multi_llm_example.yaml"
+config_path = "./config/config.yaml"
 model_config = mlflow.models.ModelConfig(development_config=config_path)
 mlflow_config = model_config.get("mlflow_config") or {}
 
